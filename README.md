@@ -37,7 +37,7 @@ You probably don't want to use FableEngine right now as it is... well... an infa
 <details>
   <summary><i>If you care this is how the editor program looks like so far</i></summary>
 
-![FableEditorScreenshot.png](.\FableEditorScreenshot.png)
+![FableEditorScreenshot.png](https://github.com/GalvinVoltag/Fable-Engine/blob/main/FableEditorScreenshot.png)
 
 The engine code is more completed than the editor.
 </details>
