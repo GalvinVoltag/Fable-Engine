@@ -4,11 +4,11 @@ namespace FableEngine.Core;
 
 public interface IDestroyable
 {
-    public bool destroyed { get; }
-    public void Destroy();
+    bool destroyed { get; }
+    void Destroy();
 }
 
-public class ManagedRoutineContainer : IDestroyable
+public class ManagedRoutineContainer : IDestroyable, IDisposable
 {
     public readonly Dictionary<int, List<ManagedRoutine>> All = new();
     public readonly List<ManagedRoutine> NewBorns = [];
@@ -18,10 +18,14 @@ public class ManagedRoutineContainer : IDestroyable
     public readonly List<ManagedRoutine> DrawRunners = [];
     public readonly List<ManagedRoutine> PostFrameRunners = [];
     public bool destroyed { get; }
-
     public void Destroy()
     {
-        
+        throw new NotImplementedException();
+    }
+
+    public void Dispose()
+    {
+        throw new NotImplementedException();
     }
 }
 
@@ -38,7 +42,7 @@ public abstract class ManagedRoutine : IDestroyable, IDisposable, IActivatable
     public static readonly List<ManagedRoutine> InputRunners = [];
     public static readonly List<ManagedRoutine> DrawRunners = [];
     public static readonly List<ManagedRoutine> PostFrameRunners = [];
-    public static readonly List<ManagedRoutine> deathRow = [];
+    // public static readonly List<ManagedRoutine> deathRow = [];
     public static readonly List<ManagedRoutine> activationRow = [];
     private int layer;
     [JsonIgnore]
@@ -87,7 +91,8 @@ public abstract class ManagedRoutine : IDestroyable, IDisposable, IActivatable
     /// </summary>
     public virtual void Destroy()
     {
-        deathRow.Add(this);
+        // deathRow.Add(this);
+        Engine.DisposeLater(this);
         destroyed = true;
     }
 
@@ -100,7 +105,6 @@ public abstract class ManagedRoutine : IDestroyable, IDisposable, IActivatable
         FixedRunners.Remove(this);
         FrameRunners.Remove(this);
         All[Layer].Remove(this);
-        
     }
     
     

@@ -71,40 +71,40 @@ public static class Time
         if (temporalLayers.TryGetValue(layer, out var tlayer))
             tlayer._timeScale = time;
         else
-            Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", ConsoleColor.Red);
+            Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", DebugLogLevel.Error);
     }
     public static float GetTimescale(int layer)
     {
         if (temporalLayers.TryGetValue(layer, out var tlayer))
             return tlayer._timeScale;
-        Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", ConsoleColor.Red);
+        Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", DebugLogLevel.Error);
         return 1;
     }
     public static float GetDeltaTime(int layer)
     {
         if (temporalLayers.TryGetValue(layer, out var tlayer))
             return _rawDeltaTime * tlayer._timeScale;
-        Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", ConsoleColor.Red);
+        Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", DebugLogLevel.Error);
         return 1;
     }
     public static void SetFixedTimeRate(int layer, float time)
     {
         if (temporalLayers.TryGetValue(layer, out var tlayer))
             tlayer._fixedTimeRate = time;
-        Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", ConsoleColor.Red);
+        Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", DebugLogLevel.Error);
     }
     public static float GetFixedTimeRate(int layer)
     {
         if (temporalLayers.TryGetValue(layer, out var tlayer))
             return tlayer._fixedTimeRate;
-        Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", ConsoleColor.Red);
+        Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", DebugLogLevel.Error);
         return 1;
     }
     public static float GetFixedTime(int layer)
     {
         if (temporalLayers.TryGetValue(layer, out var tlayer))
             return tlayer._timeScale * tlayer._fixedTimeRate;
-        Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", ConsoleColor.Red);
+        Debug.Log("Trying to access uninstantiated temporal layer: " + layer + "!", DebugLogLevel.Error);
         return 1;
     }
 }

@@ -54,6 +54,10 @@
               "target": "Package",
               "version": "[2.23.0, )"
             },
+            "Silk.NET.Vulkan": {
+              "target": "Package",
+              "version": "[2.23.0, )"
+            },
             "Silk.NET.Windowing": {
               "target": "Package",
               "version": "[2.23.0, )"

@@ -1,5 +1,7 @@
+using System.Runtime.InteropServices;
 using FableEngine.Math;
 using FableEngine.Rendering;
+using FableEngine.Rendering.Backend;
 using Silk.NET.OpenGL;
 using Shader = FableEngine.Rendering.Shader;
 
@@ -168,7 +170,7 @@ public class TextRenderer : RenderRoutine
             textPolygon.data = RegenerateMesh();
         }
         
-        GL gl =  Renderer.current.gl;
+        IRenderBackend gl =  Renderer.current.backend;
         
         shader.SetMatrix4("transform", transform.matrix, gl);
         
@@ -182,7 +184,7 @@ public class TextRenderer : RenderRoutine
         textPolygon.Draw();
     }
 
-    public float[] RegenerateMesh()
+    public byte[] RegenerateMesh()
     {
         outOfDate = false;
         Vertex[] verts = new Vertex[text.Length*6];
@@ -281,6 +283,6 @@ public class TextRenderer : RenderRoutine
             data.Add(v.color.a);
         }
         outOfDate = false;
-        return data.ToArray();
+        return MemoryMarshal.Cast<float, byte>(data.ToArray().AsSpan()).ToArray();
     }
 }

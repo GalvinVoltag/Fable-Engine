@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using FableEngine.Core;
 using FableEngine.Math;
+using FableEngine.Rendering.Backend;
 using FableEngine.Transforms;
 using Silk.NET.OpenGL;
 
@@ -22,12 +23,16 @@ public class ShapeRenderer : RenderRoutine
     {
         shape = Polygon.GetPrimitiveShape(Polygon.PrimitiveShape.square);
     }
+
+    // public static PipelineHandle staticPipeline = new();
     public static void DrawPolygon(Polygon poly)
     {
-        GL gl =  Renderer.current.gl;
+        // GL gl =  Renderer.current.gl;
         
-        gl.BindVertexArray(poly.GetID());
-        gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)(poly.GetRawData().Length/6));
+        Renderer.current.backend.SetBuffer(poly.handle);
+        Renderer.current.backend.Draw(poly.data.Length / Vertex.Size);
+        // gl.BindVertexArray(poly.GetID());
+        // gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)(poly.GetRawData().Length/6));
     }
 
     public static void DrawRectangle(Shader? shader = null, Rectangle rect = new Rectangle(), Color? color = null, Matrix4x4 pMatrix = default)

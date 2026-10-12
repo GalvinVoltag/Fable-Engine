@@ -35,3 +35,4 @@
 /home/galvin/Projects/C#/Fable Engine/Fable-Engine/obj/Debug/net10.0/FableEngine.pdb
 /home/galvin/Projects/C#/Fable Engine/Fable-Engine/obj/Debug/net10.0/FableEngine.genruntimeconfig.cache
 /home/galvin/Projects/C#/Fable Engine/Fable-Engine/obj/Debug/net10.0/ref/FableEngine.dll
+/home/galvin/Projects/C#/Fable Engine/Fable-Engine/bin/Debug/net10.0/Silk.NET.Vulkan.dll

@@ -1,30 +1,35 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using FableEngine.Core;
 using FableEngine.Debugging;
 using FableEngine.Math;
+using FableEngine.Rendering.Backend;
 using Silk.NET.OpenGL;
 
 namespace FableEngine.Rendering;
+
 public class Shader : INameable
 {
     /// <summary>
     /// current shader that is being used to draw
     /// </summary>
     public static Shader current { get; private set; }
-    private static GL currentGl { get; set; }
+    private static IRenderBackend currentBackend { get; set; }
     private static Dictionary<string, Shader> all = [];
     public static Matrix4x4 matrix = new Matrix4x4();
 
-    public static void ClearGL(GL gl)
+    public static void ClearGL(IRenderBackend backend)
     {
         foreach (Shader shader in all.Values)
         {
-            shader.shaderPrograms.Remove(gl);
+            shader.hosts.Remove(backend);
         }
     }
     
     
-    private readonly Dictionary<GL, uint> shaderPrograms = [];
+    private readonly List<IRenderBackend> hosts = [];
+    private readonly ShaderHandle handle = new();
+    private PipelineHandle pipeline = new PipelineHandle();
     private string vertexShaderSource = "";
     private string fragmentShaderSource = "";
     private bool compiled = false;
@@ -61,8 +66,8 @@ public class Shader : INameable
     ~Shader() { 
         if (compiled)
         {
-            foreach (var sp in shaderPrograms)
-                sp.Key?.DeleteProgram(sp.Value);
+            foreach (var sp in hosts)
+                sp.DeleteShader(handle);
         }
         all.Remove(name);
     }
@@ -74,33 +79,23 @@ public class Shader : INameable
     
     
 
-    public static string[] GetAllShaderNames()
+    public static string[] GetAllShaderNames() => [.. all.Keys];
+    
+    public void Use(IRenderBackend? backend = null)
     {
-        return all.Keys.ToArray();
+        backend ??= Renderer.current.backend;
+        if (current == this && currentBackend == backend) return;
+        if (!hosts.Contains(backend) || !compiled)
+            Compile(backend);
+        if (!compiled) return;
+        backend.CreatePipeline(pipeline, new PipelineDescription(handle, Vertex.Layout));
+        backend.SetPipeline(pipeline);
+        current = this;
+        currentBackend = backend;
     }
-
-    public uint GetShaderProgram(GL gl)
+    public bool Compile(IRenderBackend? backend = null)
     {
-        if (!shaderPrograms.ContainsKey(gl))
-            Compile(gl);
-        return shaderPrograms[gl];
-    }
-    public void Use(GL? gl = null)
-    {
-        gl ??= Renderer.current.gl;
-        if (current == this && currentGl == gl) return;
-        if (!shaderPrograms.ContainsKey(gl))
-            Compile(gl);
-        if (compiled && shaderPrograms[gl] != 0)
-        {
-            gl.UseProgram(shaderPrograms[gl]);
-            current = this;
-            currentGl = gl;
-        }
-    }
-    public bool Compile(GL? gl = null)
-    {
-        if (gl == null) return false;
+        if (backend == null) return false;
         if (vertexShaderSource == "" ||  fragmentShaderSource == "")
         {
             Debug.Log("compilation failed due to empty shader source!", DebugLogLevel.Error);
@@ -108,36 +103,29 @@ public class Shader : INameable
         }
         if (compiled) // delete shader before recompiling it
         {
-            if (shaderPrograms.TryGetValue(gl, out var program))
-                gl.DeleteProgram(program);
-            else
-                foreach (var sp in shaderPrograms)
-                    sp.Key.DeleteProgram(sp.Value);
+            backend.DeleteShader(handle);
         }
 
-        // if (gl != null)
-            if (!shaderPrograms.ContainsKey(gl))
-                shaderPrograms.Add(gl, ShaderUtility.CreateShaderProgram(gl, vertexShaderSource, fragmentShaderSource, name));
-        // else
-        //     foreach (var sp in shaderPrograms)
-        //         shaderPrograms[sp.Key] = ShaderUtility.CreateShaderProgram(sp.Key, vertexShaderSource, fragmentShaderSource, name);
-        compiled = shaderPrograms.ElementAt(0).Value != 0;
+        if (!hosts.Contains(backend))
+            hosts.Add(backend);
+        compiled = backend.CreateShader(handle, new GLSLSource(fragmentShaderSource, vertexShaderSource));
+        Debug.Log(DebugLogLevel.Success, ConsoleColor.Green, "Shader program ", ConsoleColor.Yellow, name, ConsoleColor.Green," compiled successfully.");
         return compiled;
     }
 
-    public void Delete(GL? gl)
+    public void Delete(IRenderBackend? backend)
     {
-        if (gl == null) return;
-        if (!shaderPrograms.ContainsKey(gl)) return;
-        gl.DeleteProgram(shaderPrograms[gl]);
-        shaderPrograms.Remove(gl);
+        if (backend == null) return;
+        if (!hosts.Contains(backend)) return;
+        backend.DeleteShader(handle);
+        hosts.Remove(backend);
     }
 
     public void Delete()
     {
-        foreach (var sp in shaderPrograms)
-            sp.Key.DeleteProgram(sp.Value);
-        shaderPrograms.Clear();
+        foreach (var sp in hosts)
+            sp.DeleteShader(handle);
+        hosts.Clear();
         all.Remove(name);
     }
 
@@ -164,66 +152,75 @@ public class Shader : INameable
         if (autoCompile) Compile();
     }
 
-    public void SetMatrix4(string variableName, Matrix4x4 matrix4, GL gl)
+    public void SetMatrix4(string variableName, Matrix4x4 matrix4, IRenderBackend backend)
     {
         if (variableName == "transform") matrix = matrix4;
-        int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
-        gl.UniformMatrix4(loc, 1, false, matrix4.data);
+        // int loc = backend.GetUniformLocation(GetShaderProgram(backend), variableName);
+        backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes(matrix4.data));
     }
     
     public void SetMatrix4(string variableName, Matrix4x4 matrix4)
     {
-        if (variableName == "transform") matrix = matrix4;
-        int loc = Renderer.current.gl.GetUniformLocation(GetShaderProgram(Renderer.current.gl), variableName);
-        Renderer.current.gl.UniformMatrix4(loc, 1, false, matrix4.data);
+        SetMatrix4(variableName, matrix4, Renderer.current.backend);        
     }
 
-    public void SetVector4(string variableName, float x, float y, float z, float w, GL gl)
+    public void SetVector4(string variableName, float x, float y, float z, float w, IRenderBackend backend)
     {
-        int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
-        gl.Uniform4(loc, x, y, z, w);
+        backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes([x, y, z, w]));
+        // int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
+        // gl.Uniform4(loc, x, y, z, w);
     }
     public void SetVector4(string variableName, float x, float y, float z, float w)
     {
-        int loc = Renderer.current.gl.GetUniformLocation(GetShaderProgram(Renderer.current.gl), variableName);
-        Renderer.current.gl.Uniform4(loc, x, y, z, w);
+        SetVector4(variableName, x, y, z, w, Renderer.current.backend);
     }
     
-    public void SetColor(string variableName, Color color, GL gl)
+    public void SetColor(string variableName, Color color, IRenderBackend backend)
     {
-        int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
-        gl.Uniform4(loc, color.r, color.g, color.b, color.a);
+        backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes([color.r, color.g, color.b, color.a]));
+        // int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
+        // gl.Uniform4(loc, color.r, color.g, color.b, color.a);
     }
     public void SetColor(string variableName, Color color)
     {
-        int loc = Renderer.current.gl.GetUniformLocation(GetShaderProgram(Renderer.current.gl), variableName);
-        Renderer.current.gl.Uniform4(loc, color.r, color.g, color.b, color.a);
+        SetColor(variableName, color, Renderer.current.backend);
     }
     
-    public void SetFloat(string variableName, float f, GL gl)
+    public void SetFloat(string variableName, float f, IRenderBackend backend)
     {
-        int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
-        gl.Uniform1(loc, f);
+        backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes([f]));
+        // int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
+        // gl.Uniform1(loc, f);
     }
     public void SetFloat(string variableName, float f)
     {
-        int loc = Renderer.current.gl.GetUniformLocation(GetShaderProgram(Renderer.current.gl), variableName);
-        Renderer.current.gl.Uniform1(loc, f);
+        SetFloat(variableName, f, Renderer.current.backend);
     }
 
-    public void SetTexture(string variableName, Texture texture, GL gl, TextureUnit unit = TextureUnit.Texture0)
+    public void SetTexture(string variableName, Texture texture, IRenderBackend backend, TextureUnit unit = TextureUnit.Texture0)
     {
-        int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
-        gl.Uniform1(loc, 0);
-        gl.ActiveTexture(unit);
-        gl.BindTexture(TextureTarget.Texture2D, texture.GetID());
+        // OpenGL ogl = (backend as OpenGL ??
+        //               throw new Exception("setting textures on backends other than OpenGL are not supported yet."));
+        // GL gl = ogl.gl;
+        // int loc = gl.GetUniformLocation(ogl.GetShaderInfo(handle).id, variableName);
+        backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes([unit]));
+        backend.SetTexture(texture.handle, 0);
+        // ogl.UseShader(handle);
+        // gl.Uniform1(loc, 0);
+        // gl.ActiveTexture(unit);
+        // gl.BindTexture(TextureTarget.Texture2D, texture.GetID());
     }
     public void SetTexture(string variableName, Texture texture, TextureUnit unit = TextureUnit.Texture0)
     {
-        int loc = Renderer.current.gl.GetUniformLocation(GetShaderProgram(Renderer.current.gl), variableName);
-        Renderer.current.gl.Uniform1(loc, 0);
-        Renderer.current.gl.ActiveTexture(unit);
-        Renderer.current.gl.BindTexture(TextureTarget.Texture2D, texture.GetID());
+        SetTexture(variableName, texture, Renderer.current.backend, unit);
+    }
+    
+    public static void Clear(IRenderBackend backend)
+    {
+        foreach (Shader shader in all.Values)
+        {
+            shader.hosts.Remove(backend);
+        }
     }
 
 }

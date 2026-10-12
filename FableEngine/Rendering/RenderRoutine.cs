@@ -1,4 +1,5 @@
 using FableEngine.Core;
+using FableEngine.Rendering.Backend;
 using FableEngine.Transforms;
 using FableEngine.Math;
 
@@ -14,7 +15,7 @@ public abstract class RenderRoutine : Routine, IRenderable
     public RenderRoutine(Shader? sourceShader = null)
     {
         shader = sourceShader?? GameWindow.defaultShader;
-        GameWindow.GetWindowOf(transform)?.renderer.RegisterRenderable(this);
+        // GameWindow.GetWindowOf(transform)?.renderer.RegisterRenderable(this);
         if (!All.ContainsKey(shader)) 
             All.Add(shader, new Dictionary<Transform, HashSet<RenderRoutine>>());
         if (!All[shader].ContainsKey(transform))

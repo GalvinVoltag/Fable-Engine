@@ -41,7 +41,7 @@ public class Theme
     public static Theme defaultFallback;
 }
 
-public class UIArea : IDestroyable
+public class UIArea : IDestroyable, IDisposable
 {
     public static List<UIArea> allAreas = new List<UIArea>();
     private static uint lastUpdateFrame = 0;
@@ -108,11 +108,16 @@ public class UIArea : IDestroyable
     }
 
     public bool destroyed { get; private set; }
-
     public void Destroy()
     {
-        allAreas.Remove(this);
+        if (destroyed) return;
         destroyed = true;
+        Engine.DisposeLater(this);
+    }
+
+    public void Dispose()
+    {
+        allAreas.Remove(this);
     }
 
     public bool hovering
@@ -564,7 +569,7 @@ public class SimpleButton : RenderRoutine
     public Color clickedColor = Color.red;
     public Color hoveredColor = Color.orange;
 
-    public static Thing CreateTemplate(Transform? parent, string text, Vector2? minSize = null, bool separateText = false)
+    public static Thing CreateTemplate(Transform? parent, string text, Vector2? minSize = null, bool separateText = false, Action? OnClick = null)
     {
         if (separateText)
         // if (false)
@@ -572,7 +577,7 @@ public class SimpleButton : RenderRoutine
             Thing newButton = new Thing(parent, text + " (SimpleButton)");
             Rect r = newButton.AddRoutine<Rect>();
             if (minSize != null) r.minSize = (Vector2)minSize;
-            newButton.AddRoutine<SimpleButton>();
+            newButton.AddRoutine<SimpleButton>().onClick = OnClick;
             newButton.AddRoutine<MaskShape>().mask = new Mask(r.Render);
             TextRenderer tr = new Thing(newButton.transform).AddRoutine<TextRenderer>();
             tr.text = text;
@@ -592,7 +597,7 @@ public class SimpleButton : RenderRoutine
             Thing newButton = new Thing(parent, text + " (SimpleButton)");
             Rect r = newButton.AddRoutine<Rect>();
             if (minSize != null) r.minSize = (Vector2)minSize;
-            newButton.AddRoutine<SimpleButton>();
+            newButton.AddRoutine<SimpleButton>().onClick = OnClick;;
             TextRenderer tr = newButton.AddRoutine<TextRenderer>();
             tr.text = text;
             tr.horizontalAlignment = TextRenderer.HorizontalAlignment.Center;
@@ -842,7 +847,6 @@ public readonly struct PropertyBinding<T>
         getter = GetGetter(expression);
         setter = GetSetter(expression);
         name = GetMemberRepresentation(expression.Body); // for serialization
-        Debug.Log("new binding created: " + name);
     }
     
     /// <summary>
@@ -857,7 +861,6 @@ public readonly struct PropertyBinding<T>
         this.setter = setter;
         this.name = name; // for serialization
         if (name == "") this.name = "PropertyBinding<" + typeof(T).Name + ">";
-        Debug.Log("new binding created: " + name);
     }
     
     public PropertyBinding(Func<object?> getter, Action<object> setter, string name)
@@ -1281,11 +1284,11 @@ public class SceneHierarchyPortal : Routine
         List<Type> final = new List<Type>();
         Type GP = T.GetGenericArguments()[0];
             
-        if (T.GetGenericArguments().Length != 1 && Debug.Log("skipped " + T + " because it has too many generic types", ConsoleColor.Red)) return [];
+        if (T.GetGenericArguments().Length != 1 && Debug.Log("skipped " + T + " because it has too many generic types", DebugLogLevel.Error)) return [];
 
         Type[] constraints = GP.GetGenericParameterConstraints();
             
-        if (constraints.Length == 0 && Debug.Log("skipped " + T + " because it is generic with no constraints", ConsoleColor.Red)) return [];
+        if (constraints.Length == 0 && Debug.Log("skipped " + T + " because it is generic with no constraints", DebugLogLevel.Error)) return [];
 
         foreach ( Type GT in AllConcreteTypes )
         {
@@ -1295,11 +1298,9 @@ public class SceneHierarchyPortal : Routine
             try {
                 GPT = T.MakeGenericType(GT);
             } catch (Exception e) { continue; }
-            Debug.Log(" --- ---> " + GT);
                 
             final.Add(GPT);
         }
-        Debug.Log(" -> total of " + final.Count + " possible types found");
         return final.ToArray();
 
     }
@@ -1312,6 +1313,8 @@ public class SceneHierarchyPortal : Routine
         IEnumerable<string> args = t.GetGenericArguments().Select(GetPrettyName); // recurse for nested generics
         return $"{name}<{string.Join(", ", args)}>";
     }
+
+    private ContextMenu addRoutineMenu;
     
     public void GenerateHierarchy(Transform? t = null, int nesting = 0)
     {
@@ -1325,23 +1328,27 @@ public class SceneHierarchyPortal : Routine
         if (settingsPanel?.attachedObject is IRoutineProvider RP && RP.GetRoutine<ContextMenuProvider>() == null)
         { 
             ContextMenuProvider CMP = RP.AddRoutine<ContextMenuProvider>();
-            
+            Stack<Thing> routineAdderElements = new Stack<Thing>();
             
             foreach (Type T in Assembly.GetExecutingAssembly().GetTypes().Where(type => type.IsAssignableTo(typeof(Routine))))
             {
                 Thing thing = SimpleButton.CreateTemplate(null, GetPrettyName(T), new Vector2(18));
                 if (!T.IsGenericType)
+                {
                     thing.GetOrAddRoutine<SimpleButton>().onClick += () =>
                     {
                         targetProvider?.AddRoutine(T);
                         GenerateInspector((targetProvider as ITransformProvider)?.transform);
-                        (settingsPanel.attachedObject as IRoutineProvider)?.GetOrAddRoutine<ListLayout>().RecalculateLayout();
+                        (settingsPanel.attachedObject as IRoutineProvider)?.GetOrAddRoutine<ListLayout>()
+                            .RecalculateLayout();
                     };
-                CMP.elements.Add(thing);
-                
-                if (!T.IsGenericType) continue;
+                    routineAdderElements.Push(thing);
+
+                    continue;
+                }
                 
                 ContextMenuProvider CMP2 = thing.AddRoutine<ContextMenuProvider>();
+                Stack<Thing> routineSelectorElements = new Stack<Thing>();
                 foreach (Type TT in GetPossibleGenericTypes(T))
                 {
                     Thing thingy = SimpleButton.CreateTemplate(null, GetPrettyName(TT), new Vector2(18));
@@ -1351,10 +1358,16 @@ public class SceneHierarchyPortal : Routine
                         GenerateInspector((targetProvider as ITransformProvider)?.transform);
                         (settingsPanel.attachedObject as IRoutineProvider)?.GetOrAddRoutine<ListLayout>().RecalculateLayout();
                     };
-                    CMP2.elements.Add(thingy);
+                    routineSelectorElements.Push(thingy);
+                    
                 }
 
+                CMP2.menus = [new ContextMenu(routineSelectorElements)];
+
             }
+
+            addRoutineMenu = new ContextMenu(routineAdderElements);
+            CMP.menus = [addRoutineMenu];
         }
 
         foreach (Transform child in t.children)
@@ -1431,18 +1444,29 @@ public class Positioner : Routine
 public class BinaryTree : Routine
 {
     public float percentage = 0.5f;
-    public bool vertical
+    public float borderThickness =5;
+    // public bool vertical
+    // {
+    //     get;
+    //     set
+    //     {
+    //         field = value;
+    //         if (value)
+    //             rescaler.cursorShape = StandardCursor.VResize;
+    //         else
+    //             rescaler.cursorShape = StandardCursor.HResize;
+    //     }
+    // } = false;
+
+    public int axis
     {
         get;
         set
         {
             field = value;
-            if (value)
-                rescaler.cursorShape = StandardCursor.VResize;
-            else
-                rescaler.cursorShape = StandardCursor.HResize;
+            rescaler.cursorShape = value == 1 ? StandardCursor.VResize : StandardCursor.HResize;
         }
-    } = false;
+    } = 0;
     public Rect? aSide;
     public Rect? bSide;
     public bool ignoreMinSize = false;
@@ -1466,36 +1490,30 @@ public class BinaryTree : Routine
         self.minSize.y = (aSide == null ? 0 : aSide.minSize.y) + (bSide == null ? 0 : bSide.minSize.y);
         if (aSide != null)
         {
-            if (vertical)
-            {
-                aSide.Transform<T2D>().position = origin + new Vector2(0, (percentage/2 - 0.5f)*self.height);
-                aSide.rect.Rescale(new Vector2(self.width, self.height*percentage), true);
-            }
-            else
-            {
-                aSide.Transform<T2D>().position = origin + new Vector2((percentage/2 - 0.5f)*self.width, 0);
-                aSide.rect.Rescale(new Vector2(self.width*percentage, self.height), true);
-            }
+            IVector aSidePosition = origin;
+            aSidePosition[axis] += (percentage / 2 - 0.5f) * self.rect.size[axis] - borderThickness/4;
+            aSide.transform.Position = aSidePosition;
+            IVector aSideSize = self.rect.size;
+            aSideSize[axis] *= percentage;
+            aSideSize[axis] -= borderThickness/2;
+            aSide.rect.Rescale((Vector2)aSideSize, true);
         }
         if (bSide != null)
         {
-            if (vertical)
-            {
-                bSide.Transform<T2D>().position = origin + new Vector2(0, (percentage / 2) * self.height);
-                bSide.rect.Rescale(new Vector2(self.width, self.height * (1 - percentage)), true);
-            }
-            else
-            {
-                bSide.Transform<T2D>().position = origin + new Vector2((percentage / 2) * self.width, 0);
-                bSide.rect.Rescale(new Vector2(self.width * (1 - percentage), self.height), true);
-            }
+            IVector bSidePosition = origin;
+            bSidePosition[axis] += (percentage / 2) * self.rect.size[axis] + borderThickness/4;
+            bSide.transform.Position = bSidePosition;
+            IVector bSideSize = self.rect.size;
+            bSideSize[axis] *= 1 - percentage;
+            bSideSize[axis] -= borderThickness/2;
+            bSide.rect.Rescale((Vector2)bSideSize, true);
         }
         
     }
 
     public override void Input(Input input)
     {
-        if (vertical)
+        if (axis == 1)
             rescaler.shape = new Rectangle( (self.origin + new Vector2(0, (percentage-0.5f)*self.height)), new Vector2(self.width, 10), true);
         else
             rescaler.shape = new Rectangle( (self.origin + new Vector2((percentage-0.5f)*self.width, 0)), new Vector2(10, self.height), true);
@@ -1507,7 +1525,7 @@ public class BinaryTree : Routine
 
         if (rescaling)
         {
-            if (vertical)
+            if (axis == 1)
                 percentage = Math.Clamp(
                     (relativeMouse.y - self.Bottom) / self.height,
                     (aSide != null && !ignoreMinSize)?aSide.minSize.y/self.height:0,
@@ -1523,6 +1541,58 @@ public class BinaryTree : Routine
     }
 }
 
+public interface IContextProvider
+{
+    public ContextMenu GenerateContextMenu();
+}
+
+public class Context : Attribute
+{
+    
+}
+
+public class ContextMenu
+{
+    public List<Thing> elements = new();
+    public float height { get; private set; }
+
+    public ContextMenu(Dictionary<string, Action> elements, float textSize = 18)
+    {
+        height = 0;
+        foreach (var pair in elements)
+        {
+            if (pair.Key != "")
+            {
+                Thing button = SimpleButton.CreateTemplate(null, pair.Key, new Vector2(textSize), true);
+                button.GetRoutine<SimpleButton>()?.onClick = pair.Value;
+                button.GetRoutine<Rect>()?.outsidePadding = new Rectangle(0, 1, 0, 1);
+                this.elements.Add(button);
+                height += button.GetOrAddRoutine<Rect>().minSize.y;
+                continue;
+            }
+            Thing separator = new Thing();
+            separator.AddRoutine<Rect>().minSize = new Vector2(2);
+            height += separator.GetOrAddRoutine<Rect>().minSize.y;
+            this.elements.Add(separator);
+        }
+    }
+    public ContextMenu(IEnumerable<Thing> elements)
+    {
+        this.elements = elements as List<Thing> ?? [.. elements];
+        foreach (Thing t in this.elements)
+        {
+            t.GetRoutine<Rect>()?.outsidePadding = new Rectangle(0, 1, 0, 1);
+            height += t.GetOrAddRoutine<Rect>().minSize.y;
+        }
+    }
+
+    public void CarryElements(Transform? parent)
+    {
+        foreach (Thing t in elements)
+            t.transform.parent = parent;
+    }
+}
+
 public class ContextMenuProvider : Routine
 {
     private UIArea area;
@@ -1531,7 +1601,8 @@ public class ContextMenuProvider : Routine
     private bool focusedOnce;
 
     public bool activateOnHover = false;
-    public List<Thing> elements = new();
+    public ContextMenu[] menus = [];
+    // public List<Thing> elements = new();
     public Vector2 clickPosition { get; private set; } = Vector2.Zero;
 
     public ContextMenuProvider()
@@ -1552,6 +1623,11 @@ public class ContextMenuProvider : Routine
         area.shape = self.rect;
         if (area.rightclicked && gw == null)
         {
+            // foreach (Transform t in transform.GetAllChildren(true))
+            // {
+            //     if (t.attachedObject is IContextProvider ICP) sources = 
+            // }
+            
             WindowOptions wo = WindowOptions.Default;
             clickPosition = input.GetMousePos();
             wo.Position = input.GetScreenMousePosIntegrated();
@@ -1561,23 +1637,23 @@ public class ContextMenuProvider : Routine
             wo.Title = "context window";
             gw = new GameWindow(wo);
             gw.title += gw.id;
-            gw.backgroundColor = Color.blue;
+            gw.backgroundColor = Color.gray;
             gw.window.FocusChanged += b =>
             {
                 if (!b && gw.children.Count == 0) Close();
             };
             gw.window.Closing += () =>
             {
-                foreach (Thing t in elements)
-                    t.transform.parent = null;
+                // foreach (ContextMenu menu in menus)
+                //     menu.CarryElements(null);
                 gw = null;
             };
             gw.parent = input.parentWindow;
 
-            foreach (Thing t in elements)
+            foreach (ContextMenu CM in menus)
             {
-                t.transform.parent = gw.scene.transform;
-                t.GetRoutine<Rect>()?.outsidePadding = new Rectangle(0, 1, 0, 1);
+                // ContextMenu CM = ICP.GenerateContextMenu();
+                CM.CarryElements(gw.scene.transform);
             }
             ListLayout layout = gw.scene.AddRoutine<ListLayout>();
             layout.self.insidePadding = new Rectangle(2);
@@ -1586,18 +1662,13 @@ public class ContextMenuProvider : Routine
 
             gw.window.Render += f =>
             {
-                float incriment = 0;
-                float width = 10;
-                foreach (Thing t in elements)
-                {
-                    Rect? r = t.GetRoutine<Rect>();
-                    if (r == null) continue;
-                    incriment += r.minSize.y + 2;
-                    if (width < r.minSize.x) width = r.minSize.x;
-                }
+                if (gw.aboutToClose) return;
+                float width = 140;
+                float height = menus.Sum(menu => menu.height);
 
                 gw.window.Size = new Vector2D<int>((int)width,
-                    (int)(incriment + (self.insidePadding.Top + self.insidePadding.Bottom) / 2));
+                    (int)(height + (self.insidePadding.Top + self.insidePadding.Bottom) / 2));
+                // gw.window.Size = new Vector2D<int>((int)width, 500);
                 gw.scene.rectangle = new Rectangle(0, 0, gw.window.Size.X, gw.window.Size.Y);
             };
             
@@ -1711,6 +1782,20 @@ internal static class Program
 {
     public static void Main()
     {
+        // WindowOptions opt = WindowOptions.Default;
+        // opt.Title = "Fable Engine - developer version 26.7";
+        // opt.Position = new Vector2D<int>(0, 0);
+        // opt.Size = new Vector2D<int>(600, 600);
+        // opt.WindowClass = "FableEngine";
+        // GameWindow win = new GameWindow(opt);
+        //
+        // while (!win.aboutToClose)
+        // {
+        //     Debug.Log("testing");
+        // }
+        //
+        // return;
+        
         // Todo: display a warning dialog to ask the user for consent to abandon wayland platform
         Debug.Log("env: " + Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), DebugLogLevel.Info);
         if (OperatingSystem.IsLinux() &&
@@ -1740,6 +1825,7 @@ internal static class Program
         options.WindowClass = "FableEngine";
         GameWindow window = new GameWindow(options);
         window.scene.transform = new Transform2D(window.scene);
+        window.backgroundColor = Color.gray;
         Engine.MaxFPS = 60; // oh yeah BD)
 
         
@@ -1770,30 +1856,32 @@ internal static class Program
         gameScene.transform.parent = otherScene.transform;
         gameScene.backgroundColor = Color.red;
         ContextMenuProvider cmp = gameScene.AddRoutine<ContextMenuProvider>();
-        cmp.elements = [
-            SimpleButton.CreateTemplate(null, "New Thing(2D)", new Vector2(18)),
-            SimpleButton.CreateTemplate(null, "New Thing(3D)", new Vector2(18)),
-            SimpleButton.CreateTemplate(null, "Settings", new Vector2(18)),
-            SimpleButton.CreateTemplate(null, "Delete", new Vector2(18)),
-            SimpleButton.CreateTemplate(null, "Play", new Vector2(18)),
-            SimpleButton.CreateTemplate(null, "Group With", new Vector2(18)),
-            SimpleButton.CreateTemplate(null, "New Light", new Vector2(18)),
-            SimpleButton.CreateTemplate(null, "New Sound", new Vector2(18)),
-            Slider<int>.CreateTemplate(null, 0, 5),
-            SimpleButton.CreateTemplate(null, "Disparent", new Vector2(18)),
-            SimpleButton.CreateTemplate(null, "Make Root", new Vector2(18))
+        cmp.menus = [
+            new ContextMenu(
+            [
+                SimpleButton.CreateTemplate(null, "New Thing(2D)", new Vector2(18), false, () =>
+                {
+                    GameWindow? win = GameWindow.GetWindowOf(gameScene.transform);
+                    if (win == null) return;
+                    Thing t = new Thing(gameScene.transform);
+                    t.AddRoutine<ShapeRenderer>().shape = new Rectangle(-20, 40);
+                    t.transform.Cast<T2D>().position = cmp.transform.worldToLocal * cmp.clickPosition;
+                    // Debug.Log(cmp.transform.localToWorld * cmp.clickPosition);
+                    cmp.Close();
+                }),
+                SimpleButton.CreateTemplate(null, "New Thing(3D)", new Vector2(18)),
+                SimpleButton.CreateTemplate(null, "Settings", new Vector2(18)),
+                SimpleButton.CreateTemplate(null, "Delete", new Vector2(18)),
+                SimpleButton.CreateTemplate(null, "Play", new Vector2(18)),
+                SimpleButton.CreateTemplate(null, "Group With", new Vector2(18)),
+                SimpleButton.CreateTemplate(null, "New Light", new Vector2(18)),
+                SimpleButton.CreateTemplate(null, "New Sound", new Vector2(18)),
+                Slider<int>.CreateTemplate(null, 0, 5),
+                SimpleButton.CreateTemplate(null, "Disparent", new Vector2(18)),
+                SimpleButton.CreateTemplate(null, "Make Root", new Vector2(18))
+                ]
+            )
         ];
-        cmp.elements[0].GetOrAddRoutine<SimpleButton>().onClick =
-            () =>
-            {
-                GameWindow? win = GameWindow.GetWindowOf(gameScene.transform);
-                if (win == null) return;
-                Thing t = new Thing(gameScene.transform);
-                t.AddRoutine<ShapeRenderer>().shape = new Rectangle(-20, 40);
-                t.transform.Cast<T2D>().position = cmp.transform.worldToLocal * cmp.clickPosition;
-                // Debug.Log(cmp.transform.localToWorld * cmp.clickPosition);
-                cmp.Close();
-            };
         
         
         
@@ -1825,7 +1913,7 @@ internal static class Program
         
         otherScene.GetOrAddRoutine<BinaryTree>().bSide = inspectWindow.GetOrAddRoutine<Rect>();
         otherScene.GetOrAddRoutine<BinaryTree>().aSide = gameScene.GetOrAddRoutine<Rect>();
-        otherScene.GetOrAddRoutine<BinaryTree>().vertical = true;
+        otherScene.GetOrAddRoutine<BinaryTree>().axis = 1;
         otherScene.GetOrAddRoutine<BinaryTree>().ignoreMinSize = true;
         
         

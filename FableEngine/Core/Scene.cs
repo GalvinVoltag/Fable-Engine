@@ -13,7 +13,7 @@ namespace FableEngine.Core;
 /// Scene is a class with its own Transform and draw calls. Other objects with transforms may be added as children and managed in here.
 /// Scenes have their own attached shapes, and these shapes behave as masks during rendering.
 /// </summary>
-public class Scene : ManagedRoutineProvider, ITransformProvider
+public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvider
 {
     // private static HashSet<Scene> AllScenes = [];
     private Transform sceneTransform;
@@ -143,27 +143,6 @@ public class Scene : ManagedRoutineProvider, ITransformProvider
         string json = JsonSerializer.Serialize(this, options);
         File.WriteAllText(path, json);
     }
-
-    /// <summary>
-    /// Set the current render mask as this Scene's shape.
-    /// (this function may be removed or carried to other classes in the future, use it with caution)
-    /// </summary>
-    public void SetMask()
-    {
-        GL gl = Renderer.current.gl;
-        gl.ColorMask(false, false, false, false);
-        
-        gl.Clear(ClearBufferMask.StencilBufferBit); // clear stencil
-        gl.StencilFunc(StencilFunction.Always, 1, 0xFF);
-        gl.StencilOp(StencilOp.Keep, StencilOp.Keep, StencilOp.Replace);
-        
-        shapeRenderer.Render();
-        
-        gl.ColorMask(true, true, true, true);
-        
-        gl.StencilFunc(StencilFunction.Equal, 1, 0xFF);
-        gl.StencilOp(StencilOp.Keep, StencilOp.Keep, StencilOp.Keep);
-    }
     
     /// <summary>
     /// Draw this Scene
@@ -203,5 +182,14 @@ public class Scene : ManagedRoutineProvider, ITransformProvider
         }
 
         mask.UnSet();
+    }
+
+    public ContextMenu GenerateContextMenu()
+    {
+        return new ContextMenu(new Dictionary<string, Action>()
+        {
+            { "New Thing 2D", () => { new Thing(transform); } },
+            { "New Thing 3D", () => { new Thing(transform); } },
+        });
     }
 }

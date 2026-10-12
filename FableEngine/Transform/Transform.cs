@@ -159,9 +159,26 @@ public class Transform : IDestroyable
         (children[indexA], children[indexB]) = (children[indexB], children[indexA]);
     }
 
-    public Transform? GetChild(int i)
+    public IEnumerable<Transform> GetAllChildren(bool includeSelf = false)
     {
-        if (i < 0 || i > children.Count) return null;
+        Stack<Transform> stack = new Stack<Transform>();
+        if (includeSelf) stack.Push(this);
+
+        while (stack.Count > 0)
+        {
+            Transform current = stack.Pop();
+            for (int i = 0; i < current.children.Count; i++)
+            {
+                stack.Push(current.GetChild(i));
+            }
+        }
+
+        return stack;
+    }
+
+    public Transform GetChild(int i)
+    {
+        if (i < 0 || i > children.Count) throw new IndexOutOfRangeException("child index was out of range");
         return children[i];
     }
 

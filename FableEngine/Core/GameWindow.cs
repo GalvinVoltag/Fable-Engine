@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using FableEngine.Debugging;
+using FableEngine.Rendering.Backend;
 using FableEngine.Math;
 using FableEngine.Rendering;
 using Silk.NET.Maths;
@@ -234,12 +235,12 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
         // size = new Vector2(windowOptions.Size.X, windowOptions.Size.Y);
         
         
-        GL gl = win.CreateOpenGL();
-        gl.Enable(EnableCap.Blend);
-        gl.Enable(EnableCap.StencilTest);
-        gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+        // GL gl = win.CreateOpenGL();
+        // gl.Enable(EnableCap.Blend);
+        // gl.Enable(EnableCap.StencilTest);
+        // gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
 
-        renderer = new Renderer(gl, win);
+        renderer = new Renderer(new OpenGL(win), win);
         
         // Debug.Log(win.Size.X + " " + win.Size.Y + "  --  " + window.Size.X + " " + window.Size.Y);
         // scene.size = new Vector2(windowOptions.Size.X, windowOptions.Size.Y);
@@ -360,7 +361,7 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
         window.SwapBuffers();
         window.Dispose();
         input.Dispose();
-        Shader.ClearGL(renderer.gl);
+        Shader.Clear(renderer.backend);
         All.Remove(id);
     }
 
@@ -386,13 +387,15 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
     public void Render(double d)
     {
         if (window.IsClosing) return;
+
+        GL gl = ((OpenGL)renderer.backend).gl;
         
-        renderer.gl.Viewport(0, 0, (uint)window.Size.X, (uint)window.Size.Y);
+        gl.Viewport(0, 0, (uint)window.Size.X, (uint)window.Size.Y);
         
-        renderer.gl.StencilMask(0xFF);
-        renderer.gl.ClearColor(0, 0, 0, 0);
-        renderer.gl.ClearStencil(1);
-        renderer.gl.Clear(ClearBufferMask.ColorBufferBit |  ClearBufferMask.StencilBufferBit);
+        // gl.StencilMask(0xFF);
+        // gl.ClearColor(0, 0, 0, 0);
+        // gl.ClearStencil(1);
+        gl.Clear(ClearBufferMask.ColorBufferBit |  ClearBufferMask.StencilBufferBit);
         
         defaultShader.Use();
 

@@ -1,5 +1,6 @@
 
 using FableEngine.Math;
+using FableEngine.Rendering.Backend;
 using FableEngine.Transforms;
 using Silk.NET.OpenGL;
 
@@ -32,10 +33,21 @@ public class Polygon : Shape
             new Vertex( .5f,  .5f, 1, 1, Color.white )
         ]) }
     };
-    private Dictionary<GL, uint> ID = [];
+    private List<IRenderBackend> hosts = [];
+    private BufferHandle _handle = new();
+    public BufferHandle handle
+    {
+        get
+        {
+            var backend = Renderer.current.backend;
+            if (!compiled || !hosts.Contains(backend)) CompileShape(data);
+            return _handle;
+        }
+    }
+    
     private bool compiled = false;
-    private float[] _data;
-    public float[] data
+    private byte[] _data;
+    public byte[] data
     {
         get => _data;
         set {
@@ -89,12 +101,14 @@ public class Polygon : Shape
 
     ~Polygon()
     {
-        // Program.Log($"CompileShape: Destroying VAO for GL context", ConsoleColor.Red);
-        foreach (var ogl in ID.Keys)
-            ogl.DeleteVertexArray(ID[ogl]);
+        foreach (var b in hosts)
+        {
+            var (backend, h) = (b, _handle);
+            backend.DeleteBuffer(h);
+        }
     }
     
-    public float[] GetRawData() { return data; }
+    public byte[] GetRawData() { return data; }
 
     public Vector2[] GetPoints()
     {
@@ -117,18 +131,9 @@ public class Polygon : Shape
         return primitiveShapes[shapeName];
     }
 
-    public uint GetID()
+    public Polygon(IEnumerable<byte> data, bool unreadable = false)
     {
-        if (!ID.ContainsKey(Renderer.current.gl) || !compiled)
-            CompileShape(data);
-
-        return ID[Renderer.current.gl];
-    }
-
-    public Polygon(IEnumerable<float> data, bool unreadable = false)
-    {
-        float[] dataArray = data as float[] ?? data.ToArray();
-        _data =  dataArray;
+        _data = data as byte[] ?? [.. data];
     }
     public Polygon(IEnumerable<Vertex> Vertices)
     {
@@ -136,22 +141,21 @@ public class Polygon : Shape
         _data =  Vertex.ToData(vertexArray);
     }
 
-    private void CompileShape(IEnumerable<float> Data, bool unreadable = false)
+    private void CompileShape(IEnumerable<byte> Data, bool unreadable = false)
     {
-        GL gl = Renderer.current.gl;
+        IRenderBackend backend = Renderer.current.backend;
 
-        if (!compiled)
+        if (!compiled) // data changed: drop stale copies everywhere
         {
-            // Program.Log($"CompileShape: Destroying VAO for GL context {gl.GetHashCode()}", ConsoleColor.Red);
-            foreach (var ogl in ID.Keys)
-                ogl.DeleteVertexArray(ID[ogl]);
-            ID.Clear();
+            foreach (var host in hosts) host.DeleteBuffer(_handle);
+            hosts.Clear();
         }
 
-        
-        uint vao = gl.GenVertexArray();
-        uint bufferID = gl.GenBuffer();
-        float[] dataArray = Data as float[] ?? Data.ToArray();
+        if (!backend.CreateBuffer(_handle, new BufferDescription(BufferType.Vertex, _data.Length), _data))
+            return;
+
+        if (!hosts.Contains(backend)) hosts.Add(backend);
+        compiled = true;
 
         Rectangle boundingRect = new Rectangle(0, 0, 0,0);
         foreach (var vertex in vertices)
@@ -165,25 +169,26 @@ public class Polygon : Shape
         
         // Program.Log($"CompileShape: Creating VAO {vao} for GL context {gl.GetHashCode()}", ConsoleColor.Cyan);
     
-        gl.BindVertexArray(vao);
-        gl.BindBuffer(BufferTargetARB.ArrayBuffer, bufferID);
-        gl.BufferData<float>(BufferTargetARB.ArrayBuffer, dataArray, BufferUsageARB.StaticDraw);
-    
-        gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, (uint)Vertex.Size, 0);
-        gl.EnableVertexAttribArray(0);
-    
-        gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, (uint)Vertex.Size, (IntPtr)(2 * sizeof(float)));
-        gl.EnableVertexAttribArray(1);
-        
-        gl.VertexAttribPointer(2, 4, VertexAttribPointerType.Float, false, (uint)Vertex.Size, (IntPtr)(4 * sizeof(float)));
-        gl.EnableVertexAttribArray(2);
-    
-        gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
-        gl.BindVertexArray(0);
+        // gl.BindVertexArray(vao);
+        // gl.BindBuffer(BufferTargetARB.ArrayBuffer, bufferID);
+        // gl.BufferData<float>(BufferTargetARB.ArrayBuffer, dataArray, BufferUsageARB.StaticDraw);
+        //
+        // gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, (uint)Vertex.Size, 0);
+        // gl.EnableVertexAttribArray(0);
+        //
+        // gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, (uint)Vertex.Size, (IntPtr)(2 * sizeof(float)));
+        // gl.EnableVertexAttribArray(1);
+        //
+        // gl.VertexAttribPointer(2, 4, VertexAttribPointerType.Float, false, (uint)Vertex.Size, (IntPtr)(4 * sizeof(float)));
+        // gl.EnableVertexAttribArray(2);
+        //
+        // gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
+        // gl.BindVertexArray(0);
 
-        ID[gl] = vao;
-        _data = dataArray;
-        compiled = true;
+        // ID[gl] = vao;
+        // if (!hosts.Contains(Renderer.current.backend)) hosts.Add(Renderer.current.backend);
+        // _data = dataArray;
+        // compiled = true;
     }
 
 }

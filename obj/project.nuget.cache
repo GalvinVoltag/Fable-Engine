@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "Frg+ANTno0g=",
+  "dgSpecHash": "b+hI8G2KsHQ=",
   "success": true,
   "projectFilePath": "/home/galvin/Projects/C#/Fable Engine/Fable-Engine/FableEngine.csproj",
   "expectedPackageFiles": [
@@ -13,6 +13,7 @@
     "/home/galvin/.nuget/packages/silk.net.input.glfw/2.23.0/silk.net.input.glfw.2.23.0.nupkg.sha512",
     "/home/galvin/.nuget/packages/silk.net.maths/2.23.0/silk.net.maths.2.23.0.nupkg.sha512",
     "/home/galvin/.nuget/packages/silk.net.opengl/2.23.0/silk.net.opengl.2.23.0.nupkg.sha512",
+    "/home/galvin/.nuget/packages/silk.net.vulkan/2.23.0/silk.net.vulkan.2.23.0.nupkg.sha512",
     "/home/galvin/.nuget/packages/silk.net.windowing/2.23.0/silk.net.windowing.2.23.0.nupkg.sha512",
     "/home/galvin/.nuget/packages/silk.net.windowing.common/2.23.0/silk.net.windowing.common.2.23.0.nupkg.sha512",
     "/home/galvin/.nuget/packages/silk.net.windowing.glfw/2.23.0/silk.net.windowing.glfw.2.23.0.nupkg.sha512",

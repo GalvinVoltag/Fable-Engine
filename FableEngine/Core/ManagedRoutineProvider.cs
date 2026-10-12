@@ -27,7 +27,7 @@ public class ManagedRoutineProvider : ManagedRoutine, IRoutineProvider
                 Engine.RunEnclosed(()=>routine.Input(input), () =>
                 {
                     Debug.Log("The error casting ManagedRoutine will be deactivated to avoid further errors!",
-                        ConsoleColor.Red);
+                        DebugLogLevel.Error);
                     routine.active = false;
                 });
     }
@@ -39,7 +39,7 @@ public class ManagedRoutineProvider : ManagedRoutine, IRoutineProvider
                 Engine.RunEnclosed(routine.Frame, () =>
                 {
                     Debug.Log("The error casting Routine will be deactivated to avoid further errors!",
-                        ConsoleColor.Red);
+                        DebugLogLevel.Error);
                     routine.active = false;
                 });
     }
@@ -51,7 +51,7 @@ public class ManagedRoutineProvider : ManagedRoutine, IRoutineProvider
                 Engine.RunEnclosed(routine.Fixed, () =>
                 {
                     Debug.Log("The error casting Routine will be deactivated to avoid further errors!",
-                        ConsoleColor.Red);
+                        DebugLogLevel.Error);
                     routine.active = false;
                 });
     }
@@ -63,7 +63,7 @@ public class ManagedRoutineProvider : ManagedRoutine, IRoutineProvider
                 Engine.RunEnclosed(routine.PostFrame, () =>
                 {
                     Debug.Log("The error casting Routine will be deactivated to avoid further errors!",
-                        ConsoleColor.Red);
+                        DebugLogLevel.Error);
                     routine.active = false;
                 });
     }
@@ -77,7 +77,7 @@ public class ManagedRoutineProvider : ManagedRoutine, IRoutineProvider
             Engine.RunEnclosed(rr.Render, () =>
             {
                 Debug.Log("The error casting Routine will be deactivated to avoid further errors!",
-                    ConsoleColor.Red);
+                    DebugLogLevel.Error);
                 rr.active = false;
             });
         }
@@ -88,7 +88,7 @@ public class ManagedRoutineProvider : ManagedRoutine, IRoutineProvider
             Engine.RunEnclosed(rr.PostRender, () =>
             {
                 Debug.Log("The error casting Routine will be deactivated to avoid further errors!",
-                    ConsoleColor.Red);
+                    DebugLogLevel.Error);
                 rr.active = false;
             });
         }

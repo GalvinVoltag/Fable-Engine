@@ -1,4 +1,5 @@
 using FableEngine.Rendering;
+using FableEngine.Rendering.Backend;
 using Silk.NET.OpenGL;
 
 namespace FableEngine.Rendering;
@@ -41,7 +42,7 @@ public struct Mask(Action? draw = null)
     
     private void IncrementMask()
     {
-        GL gl = Renderer.current.gl;
+        GL gl = ((OpenGL)Renderer.current.backend).gl;
         gl.ColorMask(false, false, false, false);
         
         gl.StencilFunc(StencilFunction.Equal, index - 1, 0xFF);
@@ -56,7 +57,7 @@ public struct Mask(Action? draw = null)
     }
     private void DecrementMask()
     {
-        GL gl = Renderer.current.gl;
+        GL gl = ((OpenGL)Renderer.current.backend).gl;
         gl.ColorMask(false, false, false, false);
         
         gl.StencilFunc(StencilFunction.Equal, index, 0xFF);

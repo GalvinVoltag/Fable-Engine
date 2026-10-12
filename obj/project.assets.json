@@ -135,6 +135,22 @@
           }
         }
       },
+      "Silk.NET.Vulkan/2.23.0": {
+        "type": "package",
+        "dependencies": {
+          "Silk.NET.Core": "2.23.0"
+        },
+        "compile": {
+          "lib/net5.0/Silk.NET.Vulkan.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net5.0/Silk.NET.Vulkan.dll": {
+            "related": ".xml"
+          }
+        }
+      },
       "Silk.NET.Windowing/2.23.0": {
         "type": "package",
         "dependencies": {
@@ -433,6 +449,35 @@
         "silkdotnet_v3.png"
       ]
     },
+    "Silk.NET.Vulkan/2.23.0": {
+      "sha512": "3/irtlSWXZ3eTi8N6nelI6L34NTB8ZJHpqVMNzZx2aX7Ek9YEQ34NoQW8/Tljrtmkg8KRhHW8hKTEzZaKV8PgA==",
+      "type": "package",
+      "path": "silk.net.vulkan/2.23.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "README.md",
+        "build/net7.0-ios16.1/Silk.NET.Vulkan.targets",
+        "build/net7.0-maccatalyst16.1/Silk.NET.Vulkan.targets",
+        "buildTransitive/net7.0-ios16.1/Silk.NET.Vulkan.targets",
+        "buildTransitive/net7.0-maccatalyst16.1/Silk.NET.Vulkan.targets",
+        "lib/net5.0/Silk.NET.Vulkan.dll",
+        "lib/net5.0/Silk.NET.Vulkan.xml",
+        "lib/net7.0-ios16.1/Silk.NET.Vulkan.dll",
+        "lib/net7.0-ios16.1/Silk.NET.Vulkan.xml",
+        "lib/net7.0-maccatalyst16.1/Silk.NET.Vulkan.dll",
+        "lib/net7.0-maccatalyst16.1/Silk.NET.Vulkan.xml",
+        "lib/netcoreapp3.1/Silk.NET.Vulkan.dll",
+        "lib/netcoreapp3.1/Silk.NET.Vulkan.xml",
+        "lib/netstandard2.0/Silk.NET.Vulkan.dll",
+        "lib/netstandard2.0/Silk.NET.Vulkan.xml",
+        "lib/netstandard2.1/Silk.NET.Vulkan.dll",
+        "lib/netstandard2.1/Silk.NET.Vulkan.xml",
+        "silk.net.vulkan.2.23.0.nupkg.sha512",
+        "silk.net.vulkan.nuspec",
+        "silkdotnet_v3.png"
+      ]
+    },
     "Silk.NET.Windowing/2.23.0": {
       "sha512": "OPNPmt/lRyUKVYrFLQXVxyATqD3MKLc1iY1oKx1/2GppgmZxVZPwN12tekrQ4C7408kgB1L5JD1Wnirqqeb2kg==",
       "type": "package",
@@ -539,6 +584,7 @@
     "net10.0": [
       "Silk.NET.Input >= 2.23.0",
       "Silk.NET.OpenGL >= 2.23.0",
+      "Silk.NET.Vulkan >= 2.23.0",
       "Silk.NET.Windowing >= 2.23.0",
       "StbImageSharp >= 2.30.15",
       "StbTrueTypeSharp >= 1.26.12"
@@ -594,6 +640,10 @@
             "version": "[2.23.0, )"
           },
           "Silk.NET.OpenGL": {
+            "target": "Package",
+            "version": "[2.23.0, )"
+          },
+          "Silk.NET.Vulkan": {
             "target": "Package",
             "version": "[2.23.0, )"
           },

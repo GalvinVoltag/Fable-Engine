@@ -39,6 +39,23 @@ namespace FableEngine
         /// current Frames Per Second of the whole program
         /// </summary>
         public static float FPS { get; private set; } = 1;
+
+        /// <summary>
+        /// any disposable that gets added to this list will be disposed at the end of the frame
+        /// </summary>
+        private static List<IDisposable> disposeList = new List<IDisposable>();
+
+        // internal metabolism tracking:
+        private static bool disposing = false;
+        
+        /// <summary>
+        /// Schedule a IDisposable for disposing at the end of this frame.
+        /// </summary>
+        public static void DisposeLater(IDisposable disposable)
+        {
+            if (!disposing)
+                disposeList.Add(disposable);
+        }
         
         /// <summary>
         /// start running the application. This will trigger the update and render loop for all GameWindows
@@ -147,14 +164,11 @@ namespace FableEngine
             
             GlobalMethods[3]?.Invoke();
                 
-            // delete dead ManagedRoutines outside the loop 
-            foreach (var MR in ManagedRoutine.deathRow)
-                RunEnclosed(MR.Dispose, () =>
-                {
-                    Debug.Log("The error casting ManagedRoutine will be deactivated to avoid further errors!",
-                        DebugLogLevel.Error);
-                    MR.active = false;
-                });
+            // delete dead ManagedRoutines outside the loop
+            disposing = true;
+            foreach (var disposable in disposeList)
+                RunEnclosed(disposable.Dispose);
+            disposing = false;
 
             foreach (var MR in ManagedRoutine.activationRow)
             {
@@ -176,7 +190,7 @@ namespace FableEngine
                 }
             }
             
-            ManagedRoutine.deathRow.Clear();
+            disposeList.Clear();
 
             isInWindowContext = true; // code from here is window-dependent
             // render and update window by window
