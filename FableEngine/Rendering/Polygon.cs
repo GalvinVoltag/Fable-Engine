@@ -1,8 +1,8 @@
 
+using FableEngine.Debugging;
 using FableEngine.Math;
 using FableEngine.Rendering.Backend;
 using FableEngine.Transforms;
-using Silk.NET.OpenGL;
 
 namespace FableEngine.Rendering;
 
@@ -101,10 +101,19 @@ public class Polygon : Shape
 
     ~Polygon()
     {
+        if (!compiled)
+            Debug.Log("trying to destroy polygon while not compiled", DebugLogLevel.Error);
         foreach (var b in hosts)
         {
-            var (backend, h) = (b, _handle);
-            backend.DeleteBuffer(h);
+            try
+            {
+                b.DeleteBuffer(_handle);
+                Debug.Log("successfully deleted off context polygon", DebugLogLevel.Success);
+            }
+            catch (Exception e)
+            {
+                Debug.Log(e, DebugLogLevel.Error);
+            }
         }
     }
     
@@ -166,29 +175,6 @@ public class Polygon : Shape
             if (vertex.pos.y > boundingRect.Top) boundingRect.Top = vertex.pos.y;
         }
         shapeRect = boundingRect;
-        
-        // Program.Log($"CompileShape: Creating VAO {vao} for GL context {gl.GetHashCode()}", ConsoleColor.Cyan);
-    
-        // gl.BindVertexArray(vao);
-        // gl.BindBuffer(BufferTargetARB.ArrayBuffer, bufferID);
-        // gl.BufferData<float>(BufferTargetARB.ArrayBuffer, dataArray, BufferUsageARB.StaticDraw);
-        //
-        // gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, (uint)Vertex.Size, 0);
-        // gl.EnableVertexAttribArray(0);
-        //
-        // gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, (uint)Vertex.Size, (IntPtr)(2 * sizeof(float)));
-        // gl.EnableVertexAttribArray(1);
-        //
-        // gl.VertexAttribPointer(2, 4, VertexAttribPointerType.Float, false, (uint)Vertex.Size, (IntPtr)(4 * sizeof(float)));
-        // gl.EnableVertexAttribArray(2);
-        //
-        // gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
-        // gl.BindVertexArray(0);
-
-        // ID[gl] = vao;
-        // if (!hosts.Contains(Renderer.current.backend)) hosts.Add(Renderer.current.backend);
-        // _data = dataArray;
-        // compiled = true;
     }
 
 }

@@ -114,7 +114,7 @@ public class Thing : ManagedRoutineProvider, ITransformProvider
         foreach (Routine R in routines)
         {
             if (R is RenderRoutine rr && rr.active)
-                Engine.RunEnclosed(rr.Render);
+                Engine.RunEnclosed(rr.Draw);
         }
         foreach (Transform child in transform.children)
             if (child.attachedObject is ManagedRoutine MR) MR.Draw();

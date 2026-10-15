@@ -2,7 +2,6 @@ using System.Runtime.InteropServices;
 using FableEngine.Math;
 using FableEngine.Rendering;
 using FableEngine.Rendering.Backend;
-using Silk.NET.OpenGL;
 using Shader = FableEngine.Rendering.Shader;
 
 namespace FableEngine.Rendering;
@@ -161,7 +160,7 @@ public class TextRenderer : RenderRoutine
         // shader = defaultFontShader;
     }
 
-    public override void Render()
+    public override void Draw()
     {
         shader.Use();
         // if (transform == null) return;

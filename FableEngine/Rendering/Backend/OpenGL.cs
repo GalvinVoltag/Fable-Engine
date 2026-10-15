@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using FableEngine.Core;
 using FableEngine.Debugging;
+using FableEngine.Math;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
 using StbImageSharp;
@@ -64,6 +65,34 @@ public class OpenGL : IRenderBackend, IDestroyable, IDisposable
     }
 
     public void EndFrame()
+    {
+        return;
+    }
+
+    public void BeginPass(RenderTargetHandle? renderTarget = null, Color? clearColor = null, float? clearDepth = null,
+        int? clearStencil = null)
+    {
+        // todo: set render target
+        ClearBufferMask mask = ClearBufferMask.None;
+        if (clearColor != null)
+        {
+            mask |= ClearBufferMask.ColorBufferBit;
+            gl.ClearColor(clearColor.Value.r, clearColor.Value.g, clearColor.Value.b, clearColor.Value.a);
+        }
+        if (clearDepth != null)
+        {
+            mask |= ClearBufferMask.DepthBufferBit;
+            gl.ClearDepth(clearDepth.Value);
+        }
+        if (clearStencil != null)
+        {
+            mask |= ClearBufferMask.StencilBufferBit;
+            gl.ClearStencil(clearStencil.Value);
+        }
+        gl.Clear(mask);
+    }
+
+    public void EndPass()
     {
         return;
     }

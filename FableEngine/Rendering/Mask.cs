@@ -42,6 +42,7 @@ public struct Mask(Action? draw = null)
     
     private void IncrementMask()
     {
+        if (Renderer.current.backend is not OpenGL) return;
         GL gl = ((OpenGL)Renderer.current.backend).gl;
         gl.ColorMask(false, false, false, false);
         
@@ -57,6 +58,7 @@ public struct Mask(Action? draw = null)
     }
     private void DecrementMask()
     {
+        if (Renderer.current.backend is not OpenGL) return;
         GL gl = ((OpenGL)Renderer.current.backend).gl;
         gl.ColorMask(false, false, false, false);
         

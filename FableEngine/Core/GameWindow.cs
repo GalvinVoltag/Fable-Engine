@@ -5,10 +5,10 @@ using FableEngine.Rendering.Backend;
 using FableEngine.Math;
 using FableEngine.Rendering;
 using Silk.NET.Maths;
-using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
 using Shader = FableEngine.Rendering.Shader;
 using FableEngine.Transforms;
+using Silk.NET.GLFW;
 using Rectangle = FableEngine.Rendering.Rectangle;
 
 namespace FableEngine.Core;
@@ -26,7 +26,7 @@ public enum WindowMethodPosition  // todo: carry to Engine
 /// as well as information about the window it controls. A FableEngine program does not necessarily need a GameWindow to run,
 /// but without one, there will be a console window created.
 /// </summary>
-public class GameWindow // todo: make this into a IDestroyable but keep Dispose() method
+public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDestroyable but keep Dispose() method
 {
     private static Dictionary<int, GameWindow> All { get; } = []; // windows bound to IDs for convenience
     /// <summary>
@@ -195,7 +195,12 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
     /// The Scene bound to this GameWindow. This can be swapped with other scenes. Beware that
     /// position of this scene is always (0, 0), its size and background color will always be set by its window.
     /// </summary>
-    public Scene scene = new();
+    public Scene scene { get;
+        set
+        {
+            field = value;
+            field.rectangle = new Rectangle(Vector2.Zero, size);
+        } } = new();
     
     /// <summary>
     /// The OS window bound to this GameWindow.
@@ -209,6 +214,7 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
 
     private void Initialize(WindowOptions windowOptions)
     {
+        Debug.Log(windowOptions.VSync, DebugLogLevel.Warning);
         IWindow win = Window.Create(windowOptions);
         // if (All.Count == 0) {
         // //     current = this; }
@@ -219,7 +225,7 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
         // win.Render += Render;
         win.Resize += (newSize) =>
         {
-            size = new Vector2(window.Size.X, window.Size.Y);
+            size = new Vector2(newSize.X, newSize.Y);
             scene.rectangle = new Rectangle( Vector2.Zero, size );
         };
         win.FocusChanged += b =>
@@ -300,11 +306,7 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
     public static GameWindow? GetWindowOf(Transform transform)
     {
         Scene? s = Scene.GetSceneOf(transform);
-        return s == null ? null : All.Values.FirstOrDefault(window => s == window.scene);
-    }
-    
-    ~GameWindow() {
-        Close();
+        return s == null ? null : All.Values.FirstOrDefault(window => s == window.scene && !window.destroyed);
     }
 
     /// <summary>
@@ -318,6 +320,9 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
 
         windowMethods[0]?.Invoke();
         
+        if (id==0) Engine.stamps[0] = Engine.stopwatch.Elapsed.TotalMicroseconds;
+        
+        
         foreach (var MR in ManagedRoutine.InputRunners) // Input is before render
             try { if (MR is ITransformProvider TP && GetWindowOf(TP.transform) == this) MR.Input(input); }
             catch (Exception e) {
@@ -325,7 +330,10 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
                 Debug.Log("The error casting ManagedRoutine will be deactivated to avoid further errors!", DebugLogLevel.Error);
                 MR.active = false;
             }
-                
+        
+        if (id==0) Engine.stamps[1] = Engine.stopwatch.Elapsed.TotalMicroseconds;
+        
+        
         windowMethods[1]?.Invoke();
         
         // if (size != scene.rectangle.size) size = scene.rectangle.size; // todo: implement min and max window size
@@ -333,7 +341,8 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
         //     window.Size = new Vector2D<int>(
         //         (int)MathF.Max(window.Size.X, scene.rect.minSize.x),
         //         (int)MathF.Max(window.Size.Y, scene.rect.minSize.y));
-        window.DoRender();
+        // window.DoRender();
+        Render(1/Engine.FPS);
         DoEvents();
         frameCount++;
         
@@ -346,7 +355,6 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
     public void Close()
     {
         aboutToClose = true;
-        parent?.children.Remove(this);
     }
 
     /// <summary>
@@ -363,6 +371,7 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
         input.Dispose();
         Shader.Clear(renderer.backend);
         All.Remove(id);
+        parent?.children.Remove(this);
     }
 
     /// <summary>
@@ -374,7 +383,7 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
     {
         if (aboutToClose || window.IsClosing)
         {
-            Dispose();
+            Destroy();
             return;
         }
         window.DoEvents();
@@ -386,20 +395,35 @@ public class GameWindow // todo: make this into a IDestroyable but keep Dispose(
     /// </summary>
     public void Render(double d)
     {
-        if (window.IsClosing) return;
+        if (window.IsClosing || aboutToClose) return;
 
-        GL gl = ((OpenGL)renderer.backend).gl;
+        window.GLContext?.MakeCurrent();
         
-        gl.Viewport(0, 0, (uint)window.Size.X, (uint)window.Size.Y);
+        renderer.backend.SetViewport(0, 0, window.Size.X, window.Size.Y);
         
+        renderer.backend.BeginFrame();
+        
+            renderer.backend.BeginPass(clearColor: Color.black, clearStencil: 0, clearDepth: 0);
+            
+                scene.Draw();
+                
+            renderer.backend.EndPass();
+        
+        renderer.backend.EndFrame();
+        
+        window.GLContext?.SwapBuffers();
+
         // gl.StencilMask(0xFF);
         // gl.ClearColor(0, 0, 0, 0);
         // gl.ClearStencil(1);
-        gl.Clear(ClearBufferMask.ColorBufferBit |  ClearBufferMask.StencilBufferBit);
-        
-        defaultShader.Use();
+        // gl.Clear(ClearBufferMask.ColorBufferBit |  ClearBufferMask.StencilBufferBit);
 
-        scene.mask.func = StencilFunction.Always;
-        scene.Draw();
+    }
+
+    public bool destroyed { get; private set; }
+    public void Destroy()
+    {
+        destroyed = true;
+        Engine.DisposeLater(this);
     }
 }

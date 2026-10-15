@@ -3,7 +3,6 @@ using FableEngine.Core;
 using FableEngine.Math;
 using FableEngine.Rendering.Backend;
 using FableEngine.Transforms;
-using Silk.NET.OpenGL;
 
 namespace FableEngine.Rendering;
 
@@ -45,7 +44,7 @@ public class ShapeRenderer : RenderRoutine
         ShapeRenderer.DrawPolygon(Polygon.GetPrimitiveShape(Polygon.PrimitiveShape.square));
     }
 
-    public override void Render()
+    public override void Draw()
     {
         // if (transform == null) return;
         shader.Use();

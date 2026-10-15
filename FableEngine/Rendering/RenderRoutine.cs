@@ -30,7 +30,7 @@ public abstract class RenderRoutine : Routine, IRenderable
         if (All[shader].Count == 0) All.Remove(shader);
     }
     
-    public virtual void Render()
+    public virtual void Draw()
     {
         // shader.Use();
     }

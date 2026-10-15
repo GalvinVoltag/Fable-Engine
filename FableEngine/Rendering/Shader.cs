@@ -1,14 +1,14 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using FableEngine.Core;
 using FableEngine.Debugging;
 using FableEngine.Math;
 using FableEngine.Rendering.Backend;
-using Silk.NET.OpenGL;
 
 namespace FableEngine.Rendering;
 
-public class Shader : INameable
+public class Shader : INameable, IParsable<Shader>
 {
     /// <summary>
     /// current shader that is being used to draw
@@ -197,22 +197,22 @@ public class Shader : INameable
         SetFloat(variableName, f, Renderer.current.backend);
     }
 
-    public void SetTexture(string variableName, Texture texture, IRenderBackend backend, TextureUnit unit = TextureUnit.Texture0)
+    public void SetTexture(string variableName, Texture texture, IRenderBackend backend, int slot = 0)
     {
         // OpenGL ogl = (backend as OpenGL ??
         //               throw new Exception("setting textures on backends other than OpenGL are not supported yet."));
         // GL gl = ogl.gl;
         // int loc = gl.GetUniformLocation(ogl.GetShaderInfo(handle).id, variableName);
-        backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes([unit]));
+        backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes([slot]));
         backend.SetTexture(texture.handle, 0);
         // ogl.UseShader(handle);
         // gl.Uniform1(loc, 0);
         // gl.ActiveTexture(unit);
         // gl.BindTexture(TextureTarget.Texture2D, texture.GetID());
     }
-    public void SetTexture(string variableName, Texture texture, TextureUnit unit = TextureUnit.Texture0)
+    public void SetTexture(string variableName, Texture texture, int slot = 0)
     {
-        SetTexture(variableName, texture, Renderer.current.backend, unit);
+        SetTexture(variableName, texture, Renderer.current.backend, slot);
     }
     
     public static void Clear(IRenderBackend backend)
@@ -223,4 +223,25 @@ public class Shader : INameable
         }
     }
 
+    public override string ToString()
+    {
+        return name;
+    }
+
+    public static Shader Parse(string s, IFormatProvider? provider = null)
+    {
+        if (!all.TryGetValue(s, out Shader? shader))
+            return all.FirstOrDefault().Value;
+        return shader;
+    }
+
+    public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out Shader result)
+    {
+        if (!all.TryGetValue(s??"", out Shader? shader)) {
+            result = null;
+            return false;
+        }
+        result = shader;
+        return true;
+    }
 }

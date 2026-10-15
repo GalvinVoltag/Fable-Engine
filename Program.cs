@@ -22,7 +22,6 @@ using Silk.NET.GLFW;
 using Silk.NET.Input;
 using Silk.NET.Windowing;
 using Silk.NET.Maths;
-using Silk.NET.OpenGL;
 using Debug = FableEngine.Debugging.Debug;
 using Matrix4x4 = FableEngine.Math.Matrix4x4;
 using MouseButton = Silk.NET.Input.MouseButton;
@@ -44,28 +43,40 @@ public class Theme
 public class UIArea : IDestroyable, IDisposable
 {
     public static List<UIArea> allAreas = new List<UIArea>();
-    private static uint lastUpdateFrame = 0;
-    public static bool hasUpdated => lastUpdateFrame == GameWindow.current.frameCount;
     private static List<UIArea> dominantAreas = new List<UIArea>();
+    private static bool initialized = false;
     
-    private static void Update() // todo: performance
+    private static void UpdateAll() // todo: performance
     {
-        // Debug.Log("updating " + GameWindow.current.frameCount);
-        // Debug.Log(Input.current.GetMousePos());
-        lastUpdateFrame = GameWindow.current.frameCount;
-        if (!Engine.isInWindowContext)
-            return;
+        foreach (UIArea area in dominantAreas)
+            area.hovering = false;
         dominantAreas.Clear();
-        Input? input = null;
         foreach (UIArea area in allAreas)
         {
-            input = GameWindow.GetWindowOf(area.transform)?.input;
-            if (input == null) continue;
-            Vector2 relativeMouse = area.transform.worldToLocal * input.GetMousePos();
-            if (area.shape.PointIntersection( relativeMouse ) )
+            if (area.transform.destroyed) {
+                area.Destroy();
+                continue; }
+            if (area.lastParentVersion != area.transform.parentVersion || area.window == null) {
+                area.window = GameWindow.GetWindowOf(area.transform);
+                area.lastParentVersion = area.transform.parentVersion; }
+            if (area.window == null || area.window.destroyed || !area.window.focused) 
+                continue;
+            
+            Vector2 relativeMouse = area.transform.worldToLocal * area.window.input.GetMousePos();
+            if (!area.shape.PointIntersection(relativeMouse)) continue;
+            
+            area.hovering = true;
+            if (dominantAreas.Count == 0) {
+                dominantAreas.Add(area);
+                continue;
+            }
+            for (int i = 0; i < dominantAreas.Count; i++)
             {
-                if (area.blocking) dominantAreas = dominantAreas.Where(ar => ar.transform.depth < area.transform.depth).ToList();
-                dominantAreas.Insert(0, area);
+                if (area.transform.depth >= dominantAreas[i].transform.depth || i == dominantAreas.Count - 1)
+                {
+                    dominantAreas.Insert(i, area);
+                    break;
+                }
             }
         }
 
@@ -75,35 +86,39 @@ public class UIArea : IDestroyable, IDisposable
             cs = area.cursorShape;
             if (area.areaCombinations == null) continue;
             foreach (var pair in area.areaCombinations)
-                if (dominantAreas.Contains(pair.Key))
+                if (pair.Key.hovering)
                     cs = pair.Value;
         }
-
-        GameWindow? win = null;
-        if (dominantAreas.Count > 0)
-        {
-            win = GameWindow.GetWindowOf(dominantAreas[0].transform);
-        }
-        if (win == null) return;
-        input = win.input;
-        
-        input?.ChangeCursorType(cs);
-        // Debug.Log(cs);
+        if (dominantAreas.Count > 0) dominantAreas[0].window?.input?.ChangeCursorType(cs);
+        else GameWindow.allWindowsList[0].input.ChangeCursorType(cs);
     }
     
-    
-    
     public StandardCursor cursorShape = StandardCursor.Arrow;
-    public Transform transform;
+
+    public Transform transform
+    {
+        get;
+        set
+        {
+            field = value;
+            window = GameWindow.GetWindowOf(value);
+        }
+    }
+    private int lastParentVersion = -1;
+    private GameWindow? window = null;
     public Dictionary<UIArea, StandardCursor>? areaCombinations;
     // Todo: add Dictionary<StandartCursor, StandardCursor>? shapeCombinations;
     public Shape shape;
-    public bool blocking = true;
+    public bool blocking;
     public UIArea(Shape shape, Transform transform, bool blocking = true)
     {
+        if (!initialized) {
+            Engine.RegisterGlobalMethod(GlobalMethodPosition.AfterWake, UpdateAll);
+            initialized = true; }
         this.blocking = blocking;
         this.shape = shape;
         this.transform = transform;
+        window = GameWindow.GetWindowOf(transform);
         allAreas.Add(this);
     }
 
@@ -120,30 +135,21 @@ public class UIArea : IDestroyable, IDisposable
         allAreas.Remove(this);
     }
 
-    public bool hovering
-    {
-        get
-        {
-            if (!hasUpdated) Update();
-            return dominantAreas.Contains(this);
-        }
-    }
+    public bool hovering { get; private set; } = false;
     public bool clicked
     {
         get
         {
-            if (!hasUpdated) Update();
-            Input? input = GameWindow.GetWindowOf(transform)?.input;
-            return input != null && input.GetMouseButton(MouseButton.Left, 0) && dominantAreas.Contains(this);
+            if (window == null) return false;
+            return hovering && window.input.GetMouseButton(MouseButton.Left, 0);
         }
     }
     public bool rightclicked
     {
         get
         {
-            if (!hasUpdated) Update();
-            Input? input = GameWindow.GetWindowOf(transform)?.input;
-            return input != null && input.GetMouseButton(MouseButton.Right, 0) && dominantAreas.Contains(this);
+            if (window == null) return false;
+            return  hovering && window.input.GetMouseButton(MouseButton.Right, 0);
         }
     }
 }
@@ -255,7 +261,7 @@ public class Rect : RenderRoutine
 
     public Action<Rectangle>? onShapeChanged;
 
-    public override void Render()
+    public override void Draw()
     {
         // if (owner is Scene s) rect = s.shapeRenderer.shape.shapeRect;
         ShapeRenderer.DrawRectangle(GameWindow.defaultShader, rect, new Color(1, 1, 1, 0.2f), transform.matrix);
@@ -461,9 +467,9 @@ public class ListLayout : RenderRoutine
         }
     }
 
-    public override void Render()
+    public override void Draw()
     {
-        base.Render();
+        base.Draw();
         if (!overrideTargets && targets.Count != transform.children.Count) RecalculateLayout();
         
         float increment = vertical ? (direction == Direction.TopToBottom ? self.insidePadding.Top : self.insidePadding.Bottom) : 
@@ -578,7 +584,7 @@ public class SimpleButton : RenderRoutine
             Rect r = newButton.AddRoutine<Rect>();
             if (minSize != null) r.minSize = (Vector2)minSize;
             newButton.AddRoutine<SimpleButton>().onClick = OnClick;
-            newButton.AddRoutine<MaskShape>().mask = new Mask(r.Render);
+            newButton.AddRoutine<MaskShape>().mask = new Mask(r.Draw);
             TextRenderer tr = new Thing(newButton.transform).AddRoutine<TextRenderer>();
             tr.text = text;
             tr.horizontalAlignment = TextRenderer.HorizontalAlignment.Center;
@@ -630,7 +636,7 @@ public class SimpleButton : RenderRoutine
         if (isDown && !input.GetMouseButton(0)) isDown = false;
     }
 
-    public override void Render()
+    public override void Draw()
     {
         shader.Use();
         if (isDown)
@@ -769,7 +775,7 @@ public class Slider<T> : RenderRoutine where T : INumber<T>
         }
     }
 
-    public override void Render()
+    public override void Draw()
     {
         // Vector2 relativeMouse = transform.WorldToLocal(input.GetMousePos(0));
         Matrix4x4 tm = transform.matrix;
@@ -1091,8 +1097,8 @@ public class DefultMemberEditor : IMemberEditor
         b.onClick = () =>
         {
             tr.text = binding.value?.ToString() ?? "???";
-            SceneHierarchyPortal.targetEditingText = tr;
-            SceneHierarchyPortal.binding = new PropertyBinding<object?>(
+            InspectorPortal.targetEditingText = tr;
+            InspectorPortal.binding = new PropertyBinding<object?>(
                     binding.getter,
                     binding.setter,
                     memberInfo.Name
@@ -1140,33 +1146,151 @@ public static class FieldOrProperty
         null;
 }
 
-public class SceneHierarchyPortal : Routine
+public static class TypeExtensions
 {
-    public Transform? targetTree;
-    public Transform? settingsPanel;
+    static Type[] AllConcreteTypes => // get all types in all loaded assemblies
+        field ??= AppDomain.CurrentDomain.GetAssemblies()
+            .SelectMany(a => { try { return a.GetTypes(); } catch { return Type.EmptyTypes; } })
+            .Where(t => !t.IsAbstract && !t.ContainsGenericParameters)
+            .Distinct()
+            .ToArray();
     
-    
-    private ListLayout _listLayout { get { return field ??= provider.GetOrAddRoutine<ListLayout>(); } }
-    private List<Thing> items = [];
-    private IRoutineProvider? targetProvider;
+    public static Type[] GetPossibleGenericTypes(Type T)
+    {
+        if (!T.IsGenericTypeDefinition) return [T];
+        
+        List<Type> final = new List<Type>();
+        Type GP = T.GetGenericArguments()[0];
+            
+        if (T.GetGenericArguments().Length != 1 && Debug.Log("skipped " + T + " because it has too many generic types", DebugLogLevel.Error)) return [];
 
+        Type[] constraints = GP.GetGenericParameterConstraints();
+            
+        if (constraints.Length == 0 && Debug.Log("skipped " + T + " because it is generic with no constraints", DebugLogLevel.Error)) return [];
+
+        foreach ( Type GT in AllConcreteTypes )
+        {
+            // if (constraints.Any(c => !c.IsAssignableFrom(GT))) continue;
+
+            Type GPT;
+            try {
+                GPT = T.MakeGenericType(GT);
+            } catch (Exception e) { continue; }
+                
+            final.Add(GPT);
+        }
+        return final.ToArray();
+
+    }
+    
+    public static string GetPrettyName(Type t)
+    {
+        if (!t.IsGenericType) return t.Name;
+
+        string name = t.Name[..t.Name.IndexOf('`')];          // "Slider"
+        IEnumerable<string> args = t.GetGenericArguments().Select(GetPrettyName); // recurse for nested generics
+        return $"{name}<{string.Join(", ", args)}>";
+    }
+}
+
+public class BasePortal : Scene
+{
+    int lastParentVersion = -1;
+    private GameWindow? gameWindow = null;
+    
+    public override void Frame()
+    {
+        if (transform.parentVersion != lastParentVersion)
+        {
+            if (transform.parent == null)
+            {
+                if (gameWindow == null)
+                {
+                    gameWindow = new GameWindow(WindowOptions.Default with { Size = new Vector2D<int>(400, 400) });
+                    gameWindow.scene = this;
+                }
+            }
+            else
+            {
+                if (gameWindow?.scene == this) gameWindow.Close();
+            }
+            lastParentVersion = transform.parentVersion;
+        }
+    }
+}
+
+public class InspectorPortal : BasePortal
+{
     private Type[] AllPropertyEditors =>
         field ??=
         [
             .. Assembly.GetExecutingAssembly().GetTypes()
                 .Where(type => type.IsAssignableTo(typeof(IMemberEditor)) && type != typeof(IMemberEditor) )
         ];
+
+    public IRoutineProvider? targetProvider = null;
+    private ContextMenu addRoutineMenu = new ContextMenu([]);
+    private Thing ScrollArea;
     
-    public void ClearList()
+
+    public InspectorPortal(Transform? parent = null, string name = "Inspector Portal")
     {
-        foreach (Thing sb in items)
+        backgroundColor = Color.green;
+        ScrollArea = new Thing(transform, "Scroller");
+        if (ScrollArea.GetRoutine<ContextMenuProvider>() != null) return;
+        
+        ListLayout Ll = ScrollArea.AddRoutine<ListLayout>();
+        Ll.self.rect.size = new Vector2(100, 100);
+        Ll.stretch = false;
+        ScrollArea.AddRoutine<WheelMotion>();
+
+        ScrollArea.AddRoutine<WheelMotion>();
+        ScrollArea.AddRoutine<FitRect>().fitY = false;
+        
+        ContextMenuProvider CMP = ScrollArea.AddRoutine<ContextMenuProvider>();
+        Stack<Thing> routineAdderElements = new Stack<Thing>();
+            
+        foreach (Type T in Assembly.GetExecutingAssembly().GetTypes().Where(type => type.IsAssignableTo(typeof(Routine))))
         {
-            sb.Destroy();
+            Thing thing = SimpleButton.CreateTemplate(null, TypeExtensions.GetPrettyName(T), new Vector2(18));
+            if (!T.IsGenericType)
+            {
+                thing.GetOrAddRoutine<SimpleButton>().onClick += () =>
+                {
+                    targetProvider?.AddRoutine(T);
+                    GenerateInspector((targetProvider as ITransformProvider)?.transform);
+                    ScrollArea.GetOrAddRoutine<ListLayout>().RecalculateLayout();
+                };
+                routineAdderElements.Push(thing);
+
+                continue;
+            }
+                
+            ContextMenuProvider CMP2 = thing.AddRoutine<ContextMenuProvider>();
+            Stack<Thing> routineSelectorElements = new Stack<Thing>();
+            foreach (Type TT in TypeExtensions.GetPossibleGenericTypes(T))
+            {
+                Thing thingy = SimpleButton.CreateTemplate(null, TypeExtensions.GetPrettyName(TT), new Vector2(18));
+                thingy.GetOrAddRoutine<SimpleButton>().onClick += () =>
+                {
+                    targetProvider?.AddRoutine(TT);
+                    GenerateInspector((targetProvider as ITransformProvider)?.transform);
+                    ScrollArea.GetOrAddRoutine<ListLayout>().RecalculateLayout();
+                };
+                routineSelectorElements.Push(thingy);
+                    
+            }
+
+            CMP2.menus = [new ContextMenu(routineSelectorElements)];
+
         }
-        items.Clear();
+
+        addRoutineMenu = new ContextMenu(routineAdderElements);
+        CMP.menus = [addRoutineMenu];
     }
     
-    
+    public static TextRenderer? targetEditingText = null;
+    public static PropertyBinding<object?>? binding = null;
     public override void Input(Input input)
     {
         if (targetEditingText == null || binding == null) return;
@@ -1207,11 +1331,31 @@ public class SceneHierarchyPortal : Routine
             binding = null;
         }
     }
+    
+    public void GenerateInspector(Transform? child)
+    {
+        // if (child.attachedObject is IDestroyable destroyable) destroyable.Destroy();
+        if (child == null) return;
+        foreach (Transform dest in ScrollArea.transform.children.ToArray())
+            dest.Destroy();
+        if (child.attachedObject is not IRoutineProvider MRP) return;
+        targetProvider = MRP;
+        
+        SimpleButton.CreateTemplate(ScrollArea.transform, child.GetType().Name, new Vector2(20));
+        ListLayout transformLayout = new Thing(ScrollArea.transform).GetOrAddRoutine<ListLayout>();
+        GeneratePropertyList(transformLayout, child);
+        Debug.Log("Generating inspector", DebugLogLevel.Error);
+        
+        foreach (Routine R in targetProvider.routines)
+        {
+            SimpleButton.CreateTemplate(ScrollArea.transform, TypeExtensions.GetPrettyName(R.GetType()), new Vector2(20), true);
+            ListLayout layout = new Thing(ScrollArea.transform).GetOrAddRoutine<ListLayout>();
+            GeneratePropertyList(layout, R);
+        }
 
-    public static TextRenderer? targetEditingText = null;
-    // public static object? targetEditingObject = null;
-    // public static MemberInfo? targetEditingMember = null;
-    public static PropertyBinding<object?>? binding = null;
+        ScrollArea.GetOrAddRoutine<ListLayout>().RecalculateLayout();
+    }
+    
     public void GeneratePropertyList(ListLayout layout, object R)
     {
         foreach (MemberInfo member in R.GetType().GetMembers(BindingFlags.Public | BindingFlags.Instance).Where(m => m is  PropertyInfo or FieldInfo))
@@ -1220,101 +1364,54 @@ public class SceneHierarchyPortal : Routine
             Type type = member.GetValue(R)?.GetType() ?? typeof(int);
 
             if (member.DeclaringType != R.GetType() && !attributes.Any(a => a is ShowDeclared)) continue;
-            
+        
             Type? editorType = null;
             int lastPriority = -1;
             foreach (var T in AllPropertyEditors)
             {
                 int priority = (int)T.GetMethod(nameof(IMemberEditor.GetPriority))!.Invoke(null, [type, member])!;
                 if (priority <= lastPriority) continue;
-                
+            
                 editorType = T;
                 lastPriority = priority;
             }
 
             if (editorType == null) continue;
-            
+        
             Thing t = (Thing)editorType.GetMethod(nameof(IMemberEditor.Generate))!
                 .Invoke(null, 
-                    [new PropertyBinding<object?>( 
-                            () => member.GetValue(R), 
-                            (v) => member.SetValue( R, v), 
-                            member.Name)
-                        , member, R])!;
+                [new PropertyBinding<object?>( 
+                        () => member.GetValue(R), 
+                        (v) => member.SetValue( R, v), 
+                        member.Name)
+                    , member, R])!;
             t.transform.parent = layout.transform;
-            
+        
         }
     }
     
-    public void GenerateInspector(Transform? child)
+}
+
+public class SceneHierarchyPortal : BasePortal
+{
+    // public static TextRenderer? targetEditingText = null;
+    // public static PropertyBinding<object?>? binding = null;
+    
+    public Transform? targetTree;
+    public InspectorPortal? targetPortal = null;
+    
+    private ListLayout _listLayout { get { return field ??= GetOrAddRoutine<ListLayout>(); } }
+    private List<Thing> items = [];
+    private IRoutineProvider? targetProvider;
+    
+    public void ClearList()
     {
-        // if (child.attachedObject is IDestroyable destroyable) destroyable.Destroy();
-        if (child == null) return;
-        if (settingsPanel == null) return;
-        foreach (Transform dest in settingsPanel.children.ToArray())
-            dest.Destroy();
-        if (child.attachedObject is not IRoutineProvider MRP) return;
-        targetProvider = MRP;
-        
-        SimpleButton.CreateTemplate(settingsPanel, child.GetType().Name, new Vector2(20));
-        ListLayout transformLayout = new Thing(settingsPanel).GetOrAddRoutine<ListLayout>();
-        GeneratePropertyList(transformLayout, child);
-        
-        foreach (Routine R in targetProvider.routines)
+        foreach (Thing sb in items)
         {
-            SimpleButton.CreateTemplate(settingsPanel, GetPrettyName(R.GetType()), new Vector2(20), true);
-            ListLayout layout = new Thing(settingsPanel).GetOrAddRoutine<ListLayout>();
-            GeneratePropertyList(layout, R);
+            sb.Destroy();
         }
-
-        (settingsPanel.attachedObject as IRoutineProvider)?.GetOrAddRoutine<ListLayout>().RecalculateLayout();
+        items.Clear();
     }
-    
-    static Type[] AllConcreteTypes => // get all types in all loaded assemblies
-        field ??= AppDomain.CurrentDomain.GetAssemblies()
-            .SelectMany(a => { try { return a.GetTypes(); } catch { return Type.EmptyTypes; } })
-            .Where(t => !t.IsAbstract && !t.ContainsGenericParameters)
-            .Distinct()
-            .ToArray();
-
-    public Type[] GetPossibleGenericTypes(Type T)
-    {
-        if (!T.IsGenericTypeDefinition) return [T];
-        
-        List<Type> final = new List<Type>();
-        Type GP = T.GetGenericArguments()[0];
-            
-        if (T.GetGenericArguments().Length != 1 && Debug.Log("skipped " + T + " because it has too many generic types", DebugLogLevel.Error)) return [];
-
-        Type[] constraints = GP.GetGenericParameterConstraints();
-            
-        if (constraints.Length == 0 && Debug.Log("skipped " + T + " because it is generic with no constraints", DebugLogLevel.Error)) return [];
-
-        foreach ( Type GT in AllConcreteTypes )
-        {
-            // if (constraints.Any(c => !c.IsAssignableFrom(GT))) continue;
-
-            Type GPT;
-            try {
-                GPT = T.MakeGenericType(GT);
-            } catch (Exception e) { continue; }
-                
-            final.Add(GPT);
-        }
-        return final.ToArray();
-
-    }
-    
-    static string GetPrettyName(Type t)
-    {
-        if (!t.IsGenericType) return t.Name;
-
-        string name = t.Name[..t.Name.IndexOf('`')];          // "Slider"
-        IEnumerable<string> args = t.GetGenericArguments().Select(GetPrettyName); // recurse for nested generics
-        return $"{name}<{string.Join(", ", args)}>";
-    }
-
-    private ContextMenu addRoutineMenu;
     
     public void GenerateHierarchy(Transform? t = null, int nesting = 0)
     {
@@ -1325,56 +1422,21 @@ public class SceneHierarchyPortal : Routine
             ClearList();
         }
 
-        if (settingsPanel?.attachedObject is IRoutineProvider RP && RP.GetRoutine<ContextMenuProvider>() == null)
-        { 
-            ContextMenuProvider CMP = RP.AddRoutine<ContextMenuProvider>();
-            Stack<Thing> routineAdderElements = new Stack<Thing>();
-            
-            foreach (Type T in Assembly.GetExecutingAssembly().GetTypes().Where(type => type.IsAssignableTo(typeof(Routine))))
-            {
-                Thing thing = SimpleButton.CreateTemplate(null, GetPrettyName(T), new Vector2(18));
-                if (!T.IsGenericType)
-                {
-                    thing.GetOrAddRoutine<SimpleButton>().onClick += () =>
-                    {
-                        targetProvider?.AddRoutine(T);
-                        GenerateInspector((targetProvider as ITransformProvider)?.transform);
-                        (settingsPanel.attachedObject as IRoutineProvider)?.GetOrAddRoutine<ListLayout>()
-                            .RecalculateLayout();
-                    };
-                    routineAdderElements.Push(thing);
-
-                    continue;
-                }
-                
-                ContextMenuProvider CMP2 = thing.AddRoutine<ContextMenuProvider>();
-                Stack<Thing> routineSelectorElements = new Stack<Thing>();
-                foreach (Type TT in GetPossibleGenericTypes(T))
-                {
-                    Thing thingy = SimpleButton.CreateTemplate(null, GetPrettyName(TT), new Vector2(18));
-                    thingy.GetOrAddRoutine<SimpleButton>().onClick += () =>
-                    {
-                        targetProvider?.AddRoutine(TT);
-                        GenerateInspector((targetProvider as ITransformProvider)?.transform);
-                        (settingsPanel.attachedObject as IRoutineProvider)?.GetOrAddRoutine<ListLayout>().RecalculateLayout();
-                    };
-                    routineSelectorElements.Push(thingy);
-                    
-                }
-
-                CMP2.menus = [new ContextMenu(routineSelectorElements)];
-
-            }
-
-            addRoutineMenu = new ContextMenu(routineAdderElements);
-            CMP.menus = [addRoutineMenu];
-        }
-
         foreach (Transform child in t.children)
         {
             // Debug.Log("going about it");
-            Thing targetBtn = SimpleButton.CreateTemplate(transform, child.attachedObject.name + " (" + child.parentVersion + ")", new Vector2(18));
-            targetBtn.GetRoutine<SimpleButton>()?.onClick = () => GenerateInspector(child);
+            Thing targetBtn = SimpleButton.CreateTemplate(transform, child.attachedObject.name + " (" + child.totalChildren + ")", new Vector2(18));
+            targetBtn.GetRoutine<SimpleButton>()?.onClick = () =>
+            {
+                if (targetPortal == null || FableEngine.Input.current.GetKey(Key.ShiftLeft))
+                {
+                    InspectorPortal inspector = new InspectorPortal();
+                    inspector.GenerateInspector(child);
+                    // new GameWindow(WindowOptions.Default with { Size = new Vector2D<int>(400, 400) }).scene = inspector;
+                }else {
+                    targetPortal?.GenerateInspector(child);
+                }
+            };
             targetBtn.GetRoutine<Rect>()?.outsidePadding.Left = nesting * 20;
             items.Add(targetBtn);
             if (child.children.Count > 0) GenerateHierarchy(child, nesting+1);
@@ -1546,11 +1608,6 @@ public interface IContextProvider
     public ContextMenu GenerateContextMenu();
 }
 
-public class Context : Attribute
-{
-    
-}
-
 public class ContextMenu
 {
     public List<Thing> elements = new();
@@ -1658,9 +1715,9 @@ public class ContextMenuProvider : Routine
             ListLayout layout = gw.scene.AddRoutine<ListLayout>();
             layout.self.insidePadding = new Rectangle(2);
             layout.direction = ListLayout.Direction.TopToBottom;
-            layout.Render();
+            layout.Draw();
 
-            gw.window.Render += f =>
+            gw.RegisterWindowMethod( WindowMethodPosition.BeforeRender, () =>
             {
                 if (gw.aboutToClose) return;
                 float width = 140;
@@ -1670,7 +1727,7 @@ public class ContextMenuProvider : Routine
                     (int)(height + (self.insidePadding.Top + self.insidePadding.Bottom) / 2));
                 // gw.window.Size = new Vector2D<int>((int)width, 500);
                 gw.scene.rectangle = new Rectangle(0, 0, gw.window.Size.X, gw.window.Size.Y);
-            };
+            });
             
             
             // Debug.Log(gw.scene.rectangle);
@@ -1684,7 +1741,7 @@ public class MaskShape : RenderRoutine
 {
     public Mask mask;
 
-    public override void Render()
+    public override void Draw()
     {
         // mask.depth = transform.depth;
         mask.Set();
@@ -1739,9 +1796,9 @@ public class WheelMotion : Routine
             Vector2 limit = new Vector2(
                 MathF.Max((self.width - parentRect.width)/2, 0),
                 MathF.Max((self.height - parentRect.height)/2, 0)
-                );
+                ) + parentRect.origin;
 
-            transform.Position = transform.Position.Add(0).Clamp(-limit, limit);
+            transform.Position = transform.Position.Clamp(-limit, limit);
         }
     }
 }
@@ -1749,7 +1806,7 @@ public class WheelMotion : Routine
 public class FitRect : RenderRoutine
 {
     private Rect self;
-    private Rect parentRect;
+    private Rect? parentRect;
 
     public bool fitX = true;
     public bool fitY = true;
@@ -1760,8 +1817,12 @@ public class FitRect : RenderRoutine
         if (transform.parent !=null && transform.parent.attachedObject is IRoutineProvider RP)
             parentRect = RP.GetOrAddRoutine<Rect>();
     }
-    public override void Render()
+    public override void Draw()
     {
+        // if (transform.parent !=null && transform.parent.attachedObject is IRoutineProvider RP)
+        //     parentRect = RP.GetRoutine<Rect>();
+        if (parentRect == null) return;
+        
         Vector2 position = self.Transform<T2D>().position;
         if (fitX)
         {
@@ -1782,20 +1843,6 @@ internal static class Program
 {
     public static void Main()
     {
-        // WindowOptions opt = WindowOptions.Default;
-        // opt.Title = "Fable Engine - developer version 26.7";
-        // opt.Position = new Vector2D<int>(0, 0);
-        // opt.Size = new Vector2D<int>(600, 600);
-        // opt.WindowClass = "FableEngine";
-        // GameWindow win = new GameWindow(opt);
-        //
-        // while (!win.aboutToClose)
-        // {
-        //     Debug.Log("testing");
-        // }
-        //
-        // return;
-        
         // Todo: display a warning dialog to ask the user for consent to abandon wayland platform
         Debug.Log("env: " + Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), DebugLogLevel.Info);
         if (OperatingSystem.IsLinux() &&
@@ -1826,7 +1873,7 @@ internal static class Program
         GameWindow window = new GameWindow(options);
         window.scene.transform = new Transform2D(window.scene);
         window.backgroundColor = Color.gray;
-        Engine.MaxFPS = 60; // oh yeah BD)
+        Engine.MaxFPS = 999; // oh yeah BD)
 
         
         
@@ -1835,20 +1882,20 @@ internal static class Program
         otherScene.backgroundColor = Color.pink;
         
         
-        Thing inspectWindow = new Thing();
-        inspectWindow.transform.parent = (window.scene.transform);
-        Rect inspectorRect = inspectWindow.GetOrAddRoutine<Rect>();
-        inspectWindow.GetOrAddRoutine<MaskShape>().mask = new Mask(inspectorRect.Render);
+        // Thing inspectWindow = new Thing();
+        // inspectWindow.transform.parent = (window.scene.transform);
+        // Rect inspectorRect = inspectWindow.GetOrAddRoutine<Rect>();
+        // inspectWindow.GetOrAddRoutine<MaskShape>().mask = new Mask(inspectorRect.Draw);
         
         
-        Thing firstlist = new Thing(inspectWindow.transform);
-        ListLayout Ll = firstlist.AddRoutine<ListLayout>();
-        Ll.self.rect.size = new Vector2(100, 100);
-        Ll.stretch = false;
-        firstlist.AddRoutine<WheelMotion>();
+        InspectorPortal editorInspectorPortal = new InspectorPortal();
+        // ListLayout Ll = firstlist.AddRoutine<ListLayout>();
+        // Ll.self.rect.size = new Vector2(100, 100);
+        // Ll.stretch = false;
+        // firstlist.AddRoutine<WheelMotion>();
 
         // inspectWindow.AddRoutine<WheelMotion>();
-        firstlist.AddRoutine<FitRect>().fitY = false;
+        // editorInspectorPortal.AddRoutine<FitRect>().fitY = false;
         
         
         
@@ -1886,54 +1933,55 @@ internal static class Program
         
         
         
-        Scene testScene = new Scene();
-        testScene.transform.parent = window.scene.transform;
-        testScene.backgroundColor = Color.orange;
-        ListLayout sllay = testScene.AddRoutine<ListLayout>();
+        SceneHierarchyPortal hierarchyPortal = new SceneHierarchyPortal();
+        hierarchyPortal.transform.parent = window.scene.transform;
+        hierarchyPortal.backgroundColor = Color.orange;
+        ListLayout sllay = hierarchyPortal.AddRoutine<ListLayout>();
         sllay.self.rect.Rescale(new Vector2(200, 400), true);
         sllay.self.insidePadding.Left = 0;
         
         
         
-        testScene.AddRoutine<SceneHierarchyPortal>().targetTree = gameScene.transform;
-        testScene.GetRoutine<SceneHierarchyPortal>()?.settingsPanel = firstlist.transform;
+        hierarchyPortal.targetTree = gameScene.transform;
+        hierarchyPortal.targetPortal = editorInspectorPortal;
 
         
         
         
-        window.scene.GetOrAddRoutine<BinaryTree>().aSide = testScene.rect;
+        window.scene.GetOrAddRoutine<BinaryTree>().aSide = hierarchyPortal.rect;
         window.scene.GetOrAddRoutine<BinaryTree>().bSide = otherScene.rect;
         window.scene.GetOrAddRoutine<BinaryTree>().ignoreMinSize = true;
         
 
-        new Thing(inspectWindow.transform).AddRoutine<Rect>().maxSize.y = 10;
+        // new Thing(inspectWindow.transform).AddRoutine<Rect>().maxSize.y = 10;
+        //
+        // inspectWindow.transform.parent = otherScene.transform;
+        // inspectWindow.transform.Cast<T2D>().position = Vector2.Zero;
 
-        inspectWindow.transform.parent = otherScene.transform;
-        inspectWindow.transform.Cast<T2D>().position = Vector2.Zero;
-        
-        otherScene.GetOrAddRoutine<BinaryTree>().bSide = inspectWindow.GetOrAddRoutine<Rect>();
+        editorInspectorPortal.transform.parent = otherScene.transform;
+        otherScene.GetOrAddRoutine<BinaryTree>().bSide = editorInspectorPortal.rect;
         otherScene.GetOrAddRoutine<BinaryTree>().aSide = gameScene.GetOrAddRoutine<Rect>();
         otherScene.GetOrAddRoutine<BinaryTree>().axis = 1;
         otherScene.GetOrAddRoutine<BinaryTree>().ignoreMinSize = true;
         
         
-        Thing firstButton = SimpleButton.CreateTemplate(firstlist.transform, nameof(firstButton), new Vector2(18, 18));
-        firstButton.GetRoutine<SimpleButton>()?.onClick = () =>
-        {
-            firstButton.transform.parent?.children[1].attachedObject?.Destroy();
-        };
-        SimpleButton.CreateTemplate(firstlist.transform, "one", new Vector2(18, 18));
-        SimpleButton.CreateTemplate(firstlist.transform, "two", new Vector2(18, 18));
-        new Thing(firstlist.transform).AddRoutine<Rect>().provider.AddRoutine<Slider<double>>();
-        new Thing(firstlist.transform).AddRoutine<Rect>().provider.AddRoutine<Slider<int>>();
-        Slider<int>.CreateTemplate(firstlist.transform, 0, 10);
-        Slider<float>.CreateTemplate(firstlist.transform, 0, 10);
-        new Thing(firstlist.transform).AddRoutine<Rect>().provider.AddRoutine<SimpleButton>().onClick = () =>
-            {
-                new Thing(firstlist.transform).AddRoutine<Rect>().provider.AddRoutine<SimpleButton>();
-            };
+        // Thing firstButton = SimpleButton.CreateTemplate(editorInspectorPortal.transform, nameof(firstButton), new Vector2(18, 18));
+        // firstButton.GetRoutine<SimpleButton>()?.onClick = () =>
+        // {
+        //     firstButton.transform.parent?.children[1].attachedObject?.Destroy();
+        // };
+        // SimpleButton.CreateTemplate(editorInspectorPortal.transform, "one", new Vector2(18, 18));
+        // SimpleButton.CreateTemplate(editorInspectorPortal.transform, "two", new Vector2(18, 18));
+        // new Thing(editorInspectorPortal.transform).AddRoutine<Rect>().provider.AddRoutine<Slider<double>>();
+        // new Thing(editorInspectorPortal.transform).AddRoutine<Rect>().provider.AddRoutine<Slider<int>>();
+        // Slider<int>.CreateTemplate(editorInspectorPortal.transform, 0, 10);
+        // Slider<float>.CreateTemplate(editorInspectorPortal.transform, 0, 10);
+        // new Thing(editorInspectorPortal.transform).AddRoutine<Rect>().provider.AddRoutine<SimpleButton>().onClick = () =>
+        //     {
+        //         new Thing(editorInspectorPortal.transform).AddRoutine<Rect>().provider.AddRoutine<SimpleButton>();
+        //     };   
         
-        new Thing(inspectWindow.transform).AddRoutine<Rect>();
+        // new Thing(inspectWindow.transform).AddRoutine<Rect>();
         
         
         Thing fpsCounter = new Thing(window.scene.transform);

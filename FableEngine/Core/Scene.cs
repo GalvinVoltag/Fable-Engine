@@ -79,7 +79,7 @@ public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvide
         this.name = name;
         rect = AddRoutine<Rect>();
         (shapeRenderer = AddRoutine<ShapeRenderer>()).shape = rectangle;
-        mask = new Mask(shapeRenderer.Render);
+        mask = new Mask(shapeRenderer.Draw);
     }
 
     public new void Destroy()
@@ -171,7 +171,7 @@ public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvide
         foreach (Routine R in routines)
         {
             if (R is not RenderRoutine rr) continue;
-            Engine.RunEnclosed(rr.Render);
+            Engine.RunEnclosed(rr.Draw);
         }
         foreach (Transform t in transform.children)
             if (t.attachedObject is ManagedRoutine { active: true } MR) MR.Draw();

@@ -1,18 +1,7 @@
-using System.Collections;
-using System.IO.Pipelines;
 using FableEngine.Rendering.Backend;
-using FableEngine.Math;
-using Silk.NET.GLFW;
-using Silk.NET.OpenGL;
-using Silk.NET.Vulkan;
 using Silk.NET.Windowing;
 
 namespace FableEngine.Rendering;
-
-// public class Vulkan : IRenderBackend todo later
-// {
-//     
-// }
 
 public class Renderer
 {

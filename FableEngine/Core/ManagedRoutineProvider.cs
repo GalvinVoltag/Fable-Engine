@@ -74,7 +74,7 @@ public class ManagedRoutineProvider : ManagedRoutine, IRoutineProvider
         {
             if (!R.active || R is not RenderRoutine rr) continue;
             rr.shader.Use();
-            Engine.RunEnclosed(rr.Render, () =>
+            Engine.RunEnclosed(rr.Draw, () =>
             {
                 Debug.Log("The error casting Routine will be deactivated to avoid further errors!",
                     DebugLogLevel.Error);

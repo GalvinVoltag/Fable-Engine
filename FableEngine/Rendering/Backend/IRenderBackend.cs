@@ -1,4 +1,12 @@
+using FableEngine.Math;
+
 namespace FableEngine.Rendering.Backend;
+
+public readonly record struct RenderTargetHandle()
+{
+    private static uint nextID = 1;
+    private readonly uint uniqueid = nextID++;
+}
 
 public interface IRenderBackend
 {
@@ -7,13 +15,15 @@ public interface IRenderBackend
     public BackendInfo Info { get; }
     
     // FRAME CONTROL
-    void BeginFrame();
-    void EndFrame(); 
-    void WaitForGPU(); 
+    public void BeginFrame();
+    public void EndFrame(); 
+    public void BeginPass(RenderTargetHandle? renderTarget = null, Color? clearColor = null, float? clearDepth = null, int? clearStencil = null);
+    public void EndPass(); 
+    public void WaitForGPU();
     
     // VIEWPORT
-    void SetViewport(int x, int y, int width, int height);
-    void SetScissor(int x, int y, int width, int height);
+    public void SetViewport(int x, int y, int width, int height);
+    public void SetScissor(int x, int y, int width, int height);
     
     // RESOURCE CREATION - DELETION
     public bool CreateBuffer(BufferHandle gb, BufferDescription description, ReadOnlySpan<byte> Data);

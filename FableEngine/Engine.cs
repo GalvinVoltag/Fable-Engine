@@ -2,6 +2,7 @@ using System.Diagnostics;
 using FableEngine.Core;
 using FableEngine.Debugging;
 using FableEngine.Math;
+using Microsoft.VisualBasic.CompilerServices;
 using Debug = FableEngine.Debugging.Debug;
 
 namespace FableEngine
@@ -57,6 +58,9 @@ namespace FableEngine
                 disposeList.Add(disposable);
         }
         
+        public static Stopwatch stopwatch;
+        
+        
         /// <summary>
         /// start running the application. This will trigger the update and render loop for all GameWindows
         /// and ManagedRoutines. Any code written after this will only execute after the application and
@@ -64,7 +68,7 @@ namespace FableEngine
         /// </summary>
         public static void Run()
         {
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            stopwatch = Stopwatch.StartNew();
             double lastTime = 0;
         
             while (GameWindow.openWindowCount > 0)
@@ -115,10 +119,23 @@ namespace FableEngine
         /// Run a method through a try catch and continue without crashing current loop.
         /// </summary>
         /// <returns>true when executed successfully, and false when an error occurs</returns>
-        public static bool RunEnclosed(Action method, Action? errorAction = null)
+        public static bool RunEnclosed(Action method, Action? errorAction = null, IActivatable? activatable = null)
         {
-            try { method(); return true; }catch (Exception e) { Debug.Log(e, DebugLogLevel.Error); errorAction?.Invoke(); return false; }
+            try
+            {
+                method();
+                return true;
+            }
+            catch (Exception e)
+            {
+                Debug.Log(e, DebugLogLevel.Error); 
+                errorAction?.Invoke(); 
+                activatable?.active = false; 
+                return false;
+            }
         }
+        
+        public static double[] stamps = new double[5];
         
         //pending for optimization and rework
         private static void GlobalUpdate(double deltaTime) // update all windows and ManagedRoutines
@@ -130,10 +147,12 @@ namespace FableEngine
             
             GlobalMethods[0]?.Invoke();
             
+
             foreach (var MR in ManagedRoutine.NewBorns) {
                 MR.Wake(); MR.newBorn = false;
             }
             ManagedRoutine.NewBorns.Clear();
+            
             
             int loops = (int)(Time.fixedTimeAccumulation / Time.fixedTimeRate); // how many fixedupdate in this frame
             Time.fixedTimeAccumulation -= loops*Time.fixedTimeRate - Time.deltaTime; // subtract the remainder and add the current deltaTime
@@ -148,7 +167,7 @@ namespace FableEngine
                 {
                     Debug.Log("The error casting ManagedRoutine will be deactivated to avoid further errors!",
                         DebugLogLevel.Error);
-                    MR.active = false;
+                    // MR.active = false;
                 });
             
             GlobalMethods[2]?.Invoke();
@@ -159,7 +178,7 @@ namespace FableEngine
                     {
                         Debug.Log("The error casting ManagedRoutine will be deactivated to avoid further errors!",
                             DebugLogLevel.Error);
-                        MR.active = false;
+                        // MR.active = false;
                     });
             
             GlobalMethods[3]?.Invoke();
@@ -192,10 +211,15 @@ namespace FableEngine
             
             disposeList.Clear();
 
+            
             isInWindowContext = true; // code from here is window-dependent
             // render and update window by window
+            bool profile = true;
             foreach (var win in GameWindow.allWindowsList)
+            {
                 win.WindowUpdate();
+            }
+            
             
             isInWindowContext = false; // code from here is window-agnostic
             
@@ -204,12 +228,20 @@ namespace FableEngine
                 {
                     Debug.Log("The error casting ManagedRoutine will be deactivated to avoid further errors!",
                         DebugLogLevel.Error);
-                    MR.active = false;
+                    // MR.active = false;
                 });
+            
+
+            ema = smoothness * (stamps[1] - stamps[0]) + (1 - smoothness) * ema;
+            // Debug.Log((int)ema, DebugLogLevel.Warning, DebugLogLevel.Error);
+            // Debug.Log("stamps[1] - stamps[0], DebugLogLevel.Warning, DebugLogLevel.Error", DebugLogLevel.Warning);
             
             GlobalMethods[4]?.Invoke();
             
             // Input.current = null;
         }
+        
+        private static double ema = 10;
+        private static double smoothness = 0.02;
     }
 }
