@@ -3,6 +3,14 @@ using Silk.NET.Core.Native;
 
 namespace FableEngine.Math;
 
+public readonly struct VectorAxis
+{
+    public const int X = 0;
+    public const int Y = 1;
+    public const int Z = 2;
+    public const int W = 3;
+}
+
 public interface IVector
 {
     public float x => this[0];

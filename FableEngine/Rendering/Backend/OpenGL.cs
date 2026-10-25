@@ -132,6 +132,7 @@ public class OpenGL : IRenderBackend, IDestroyable, IDisposable
             {
                 GLSLSource glsl = (GLSLSource)source;
                 
+                
                 uint vertexShader = CompileShader(ogl, glsl.vertexSource, ShaderType.VertexShader);
                 uint fragmentShader = CompileShader(ogl, glsl.fragmentSource, ShaderType.FragmentShader);
                 if (vertexShader == 0 || fragmentShader == 0) { 

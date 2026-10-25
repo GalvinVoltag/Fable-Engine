@@ -59,7 +59,18 @@ namespace FableEngine
         }
         
         public static Stopwatch stopwatch;
-        
+
+
+        static void Recurse(int i)
+        {
+            if (i > 0)
+                Recurse(i - 1);
+        }
+
+        static void Loop(int i)
+        {
+            for (int a = 0; a < i; a++) ;
+        }
         
         /// <summary>
         /// start running the application. This will trigger the update and render loop for all GameWindows
@@ -70,6 +81,13 @@ namespace FableEngine
         {
             stopwatch = Stopwatch.StartNew();
             double lastTime = 0;
+
+            // double checkpoint = stopwatch.Elapsed.Microseconds;
+            // Recurse(123456);
+            // Debug.Log("recursion speed: ", stopwatch.Elapsed.Microseconds - checkpoint);
+            // checkpoint = stopwatch.Elapsed.Microseconds;
+            // Loop(123456);
+            // Debug.Log("looping speed: ", stopwatch.Elapsed.Microseconds - checkpoint);
         
             while (GameWindow.openWindowCount > 0)
             {

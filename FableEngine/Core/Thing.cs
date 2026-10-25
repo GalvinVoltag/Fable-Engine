@@ -78,6 +78,29 @@ public class Thing : ManagedRoutineProvider, ITransformProvider
         return routine;
     }
 
+    public T? GetRoutineFromParents<T>(bool includeSelf = false) where T : Routine
+    {
+        T? routine = null;
+        Transform? target = includeSelf ? transform : parent;
+        while (routine == null && target != null)
+        {
+            routine = (target.attachedObject as IRoutineProvider)?.GetRoutine<T>();
+            target = target.parent;
+        }
+        return routine;
+    }
+    public Routine? GetRoutineFromParents(Type T, bool includeSelf = false)
+    {
+        Routine? routine = null;
+        Transform? target = includeSelf ? transform : parent;
+        while (routine == null && target != null)
+        {
+            routine = (target.attachedObject as IRoutineProvider)?.GetRoutine(T);
+            target = target.parent;
+        }
+        return routine;
+    }
+
 
     /// <summary>
     /// Create a Thing with said position and as a child of said transform
@@ -95,6 +118,10 @@ public class Thing : ManagedRoutineProvider, ITransformProvider
         // transform = transformType.GetConstructor([typeof(ITransformProvider), typeof(Transform)])
         //     ?.Invoke([(object)this, (object?)parent]);
         // _All.Add(this);
+    }
+    public static Thing New<T>(Transform? parent = null, string name = "Thing") where T : Transform
+    {
+        return new Thing(parent, name, typeof(T));
     }
 
     /// <summary>

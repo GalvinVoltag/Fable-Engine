@@ -77,7 +77,8 @@ public record struct Rectangle : Shape, IParsable<Rectangle>
     public void Draw()
     {
         // if (Shader.current == null) return;
-        Shader shader = Shader.current;
+        Shader? shader = Shader.current;
+        if (shader is null) return;
         shader.SetMatrix4("transform", Shader.matrix * Transform2D.TransformToMatrix4( position, 0, size));
         ShapeRenderer.DrawPolygon(Polygon.GetPrimitiveShape(Polygon.PrimitiveShape.square));
     }

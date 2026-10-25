@@ -9,6 +9,7 @@ using Silk.NET.Windowing;
 using Shader = FableEngine.Rendering.Shader;
 using FableEngine.Transforms;
 using Silk.NET.GLFW;
+using Silk.NET.Vulkan;
 using Rectangle = FableEngine.Rendering.Rectangle;
 
 namespace FableEngine.Core;
@@ -32,30 +33,34 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
     /// <summary>
     /// Current GameWindow that is being processed if in a window-dependent method, in a window-agnostic context it will return the last processed window
     /// </summary>
-    public static GameWindow current { get; private set; }
+    public static GameWindow current
+    {
+        get => field ?? throw new NullReferenceException("current GameWindow does not exist where there are no GameWindows"); private set; }
     /// <summary>
     /// The GameWindow that is currently in focus
     /// </summary>
-    public static GameWindow focusedWindow { get; private set; }
+    public static GameWindow focusedWindow { 
+        get => field ?? throw new NullReferenceException("focused GameWindow does not exist where there are no GameWindows");
+        private set; }
     
     public static List<GameWindow> allWindowsList => All.Values.ToList();
     public static int openWindowCount => All.Count;
     /// <summary>
-    /// number of frames calculated since the creation of this window.
+    /// number of frames rendered since the creation of this window.
     /// </summary>
     public uint frameCount = 0;
     /// <summary>
-    /// Custom methods that execute between engine managed methods, use RegisterWindowMethod() and UnregisterWindowMethod() for registeration
+    /// Custom methods that execute between engine managed methods, use RegisterWindowMethod() and UnregisterWindowMethod() for registration
     /// </summary>
-    private readonly Action?[] windowMethods = new Action?[5];
-    public void RegisterWindowMethod(WindowMethodPosition methodPosition, Action method)
+    private readonly Action<GameWindow>?[] windowMethods = new Action<GameWindow>?[5];
+    public void RegisterWindowMethod(WindowMethodPosition methodPosition, Action<GameWindow> method)
     {
         if (windowMethods[(int)methodPosition] == null) 
-            windowMethods[(int)methodPosition] = new Action(method);
+            windowMethods[(int)methodPosition] = method;
         else
             windowMethods[(int)methodPosition] += method;
     }
-    public void UnregisterWindowMethod(Action method, WindowMethodPosition? methodPosition = null)
+    public void UnregisterWindowMethod(Action<GameWindow> method, WindowMethodPosition? methodPosition = null)
     {
         if (methodPosition == null)
         {
@@ -71,7 +76,7 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
     }
     
     /// <summary>
-    /// A unique ID bound to this window upon creation.
+    /// A unique ID bound to this window upon creation. It cannot be changed
     /// </summary>
     public readonly int id;
     
@@ -83,12 +88,12 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
     public int width
     {
         get => window.Size.X;
-        set => window.Size = new Vector2D<int>(value, window.Size.Y);
+        set => size = new Vector2(value, window.Size.Y);
     }
     public int height
     {
         get => window.Size.Y;
-        set => window.Size = new Vector2D<int>(window.Size.X, value);
+        set => size = new Vector2(window.Size.X, value);
     }
 
     public Vector2 size
@@ -102,13 +107,12 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
         }
     } = new Vector2();
 
-    private Vector2 positionField = new Vector2();
     public Vector2 position
     {
-        get => positionField;
+        get => field;
         set
         {
-            positionField = value;
+            field = value;
             window.Position = new Vector2D<int>((int)value.x, (int)value.y);
         }
     }
@@ -116,8 +120,8 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
     // todo: make use of dynamic properties, and do this at setter / getter respectively
     public void RefreshPosition()
     {
-        if ((int)positionField.x != window.Position.X || (int)positionField.y != window.Position.Y)
-            positionField = (Vector2)window.Position; // refresh position field in case if window is moved
+        if ((int)position.x != window.Position.X || (int)position.y != window.Position.Y)
+            position = (Vector2)window.Position; // refresh position field in case if window is moved
     }
 
     public string title
@@ -127,7 +131,7 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
     }
 
     /// <summary>
-    /// Background color of the window and its scene.
+    /// Background color of the scene of this window. isTransparent must be true in order to render transparency.
     /// </summary>
     public Color backgroundColor // todo: obsolete, make use of window.scene.backgroundColor instead
     {
@@ -143,6 +147,7 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
     public Renderer renderer;
 
     public Input input;
+    public bool dontInputWhenUnfocused = true;
 
     public GameWindow? parent
     {
@@ -164,32 +169,33 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
     /// The default shader used to draw sprites for FableEngine.
     /// </summary>
     public static Shader defaultShader { get; private set; } = new Shader("default", 
-        """
-        #version 330 core
-        layout (location = 0) in vec2 aPosition;
-        layout (location = 1) in vec2 aUV;
-        layout (location = 2) in vec4 aColor;
-        out vec2 fragUV;
-        out vec4 vertexColor;
-        uniform mat4 transform;
-        uniform vec4 color;
-        uniform vec4 UVOffset;
-        void main() {
-          gl_Position = transform * vec4(aPosition, 0.0, 1.0);
-          fragUV = vec2(aUV.x*UVOffset.b+UVOffset.r, 1.0 - (aUV.y*UVOffset.a+UVOffset.g));
-          vertexColor = aColor * color;
-        }
-        """,
-        """
-        #version 330 core
-        in vec2 fragUV;
-        in vec4 vertexColor;
-        out vec4 FragColor;
-        uniform sampler2D uTexture;
-        void main() {
-            FragColor = texture(uTexture, fragUV) * vertexColor;
-        }
-        """);
+        new GLSLSource("""
+           #version 330 core
+           layout (location = 0) in vec2 aPosition;
+           layout (location = 1) in vec2 aUV;
+           layout (location = 2) in vec4 aColor;
+           out vec2 fragUV;
+           out vec4 vertexColor;
+           uniform mat4 transform;
+           uniform vec4 color;
+           uniform vec4 UVOffset;
+           void main() {
+             gl_Position = transform * vec4(aPosition, 0.0, 1.0);
+             fragUV = vec2(aUV.x*UVOffset.b+UVOffset.r, 1.0 - (aUV.y*UVOffset.a+UVOffset.g));
+             vertexColor = aColor * color;
+           }
+           """, """
+            #version 330 core
+            in vec2 fragUV;
+            in vec4 vertexColor;
+            out vec4 FragColor;
+            uniform sampler2D uTexture;
+            void main() {
+                FragColor = texture(uTexture, fragUV) * vertexColor;
+            }
+            """
+            )
+        );
     
     /// <summary>
     /// The Scene bound to this GameWindow. This can be swapped with other scenes. Beware that
@@ -200,6 +206,7 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
         {
             field = value;
             field.rectangle = new Rectangle(Vector2.Zero, size);
+            field.size = size;
         } } = new();
     
     /// <summary>
@@ -214,45 +221,30 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
 
     private void Initialize(WindowOptions windowOptions)
     {
-        Debug.Log(windowOptions.VSync, DebugLogLevel.Warning);
+        Debug.Log("vsync: ", windowOptions.VSync, DebugLogLevel.Warning);
         IWindow win = Window.Create(windowOptions);
-        // if (All.Count == 0) {
-        // //     current = this; }
-        // id = 0;
-        // while (All.ContainsKey(id))
-        //     id++;
-        // All.Add(id, this);
-        // win.Render += Render;
         win.Resize += (newSize) =>
         {
             size = new Vector2(newSize.X, newSize.Y);
             scene.rectangle = new Rectangle( Vector2.Zero, size );
+            scene.size = size ;
         };
         win.FocusChanged += b =>
         {
             if (b) focusedWindow = this;
             this.focused = b;
         };
-        win.Render += Render;
-        // win.FocusChanged += b => { Debug.Log("focus changed"); }; 
         Debug.Log("okay");
         win.Initialize();
         win.Size = new Vector2D<int>(windowOptions.Size.X, windowOptions.Size.Y);
-        // size = new Vector2(windowOptions.Size.X, windowOptions.Size.Y);
         
-        
-        // GL gl = win.CreateOpenGL();
-        // gl.Enable(EnableCap.Blend);
-        // gl.Enable(EnableCap.StencilTest);
-        // gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
-
         renderer = new Renderer(new OpenGL(win), win);
         
-        // Debug.Log(win.Size.X + " " + win.Size.Y + "  --  " + window.Size.X + " " + window.Size.Y);
-        // scene.size = new Vector2(windowOptions.Size.X, windowOptions.Size.Y);
+        scene.transform.Position = Vector2.One;
         scene.rectangle = new Rectangle(Vector2.Zero, new Vector2(windowOptions.Size.X, windowOptions.Size.Y));
         input = new Input(this);
         size = new Vector2(windowOptions.Size.X, windowOptions.Size.Y);
+        scene.size = new Vector2(555, 555);
     }
 
     /// <summary>
@@ -289,8 +281,8 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
         options.Size = new Vector2D<int>((int)Size.x, (int)Size.y);
         options.Position = new Vector2D<int>((int)position.x, (int)position.y);
         options.TransparentFramebuffer = transparent;
-        if (transparent) scene.backgroundColor = Color.transparent;
         Initialize(options);
+        if (transparent) scene.backgroundColor = Color.transparent;
         this.size = Size;
         this.position = position;
         All.Add(id, this);
@@ -305,10 +297,19 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
     /// <returns> the window given transform's root scene is bound to </returns>
     public static GameWindow? GetWindowOf(Transform transform)
     {
-        Scene? s = Scene.GetSceneOf(transform);
+        Scene? s = null;
+        Transform parent = transform;
+        while (parent.parent != null)
+        {
+            parent = parent.parent;
+        }
+        if (parent.attachedObject is Scene scene)
+            s = scene;
         return s == null ? null : All.Values.FirstOrDefault(window => s == window.scene && !window.destroyed);
     }
 
+    public static bool insideInputUpdate = false;
+    
     /// <summary>
     /// Update methods that are window-dependent through this window.
     /// </summary>
@@ -318,35 +319,46 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
         Renderer.current = renderer;
         RefreshPosition(); // needed to detect if window is moved by the OS
 
-        windowMethods[0]?.Invoke();
+        
+        windowMethods[0]?.Invoke(this);
         
         if (id==0) Engine.stamps[0] = Engine.stopwatch.Elapsed.TotalMicroseconds;
-        
-        
-        foreach (var MR in ManagedRoutine.InputRunners) // Input is before render
-            try { if (MR is ITransformProvider TP && GetWindowOf(TP.transform) == this) MR.Input(input); }
+
+        insideInputUpdate = true;
+        Queue<Transform> inputQueue = new Queue<Transform>();
+        inputQueue.Enqueue(scene.transform);
+        while (inputQueue.Count != 0)
+        {
+            if (dontInputWhenUnfocused && !focused) break;
+            bool b = true;
+            Transform transform = inputQueue.Dequeue();
+            try { if (transform.attachedObject is ManagedRoutine MR) b = MR.Input(input); }
             catch (Exception e) {
                 Debug.Log(e, DebugLogLevel.Error);
-                Debug.Log("The error casting ManagedRoutine will be deactivated to avoid further errors!", DebugLogLevel.Error);
-                MR.active = false;
+                Debug.Log("The error has been from an input queue!", DebugLogLevel.Error);
             }
+            if (!b) continue;
+            foreach(Transform child in transform.children)
+            {
+                inputQueue.Enqueue(child);
+            }
+            
+        }
+        
+
+        insideInputUpdate = false;
         
         if (id==0) Engine.stamps[1] = Engine.stopwatch.Elapsed.TotalMicroseconds;
         
         
-        windowMethods[1]?.Invoke();
+        windowMethods[1]?.Invoke(this);
         
-        // if (size != scene.rectangle.size) size = scene.rectangle.size; // todo: implement min and max window size
-        // if (window.Size.X < scene.rect.minSize.x || window.Size.Y < scene.rect.minSize.y)
-        //     window.Size = new Vector2D<int>(
-        //         (int)MathF.Max(window.Size.X, scene.rect.minSize.x),
-        //         (int)MathF.Max(window.Size.Y, scene.rect.minSize.y));
-        // window.DoRender();
+        // todo: implement min and max window size
         Render(1/Engine.FPS);
         DoEvents();
         frameCount++;
         
-        windowMethods[2]?.Invoke();
+        windowMethods[2]?.Invoke(this);
     }
     
     /// <summary>
@@ -412,12 +424,6 @@ public class GameWindow : IDestroyable, IDisposable// todo: make this into a IDe
         renderer.backend.EndFrame();
         
         window.GLContext?.SwapBuffers();
-
-        // gl.StencilMask(0xFF);
-        // gl.ClearColor(0, 0, 0, 0);
-        // gl.ClearStencil(1);
-        // gl.Clear(ClearBufferMask.ColorBufferBit |  ClearBufferMask.StencilBufferBit);
-
     }
 
     public bool destroyed { get; private set; }

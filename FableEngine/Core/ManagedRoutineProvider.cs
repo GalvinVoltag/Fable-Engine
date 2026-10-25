@@ -20,22 +20,23 @@ public class ManagedRoutineProvider : ManagedRoutine, IRoutineProvider
         }
     }
     
-    public override void Input(Input input)
+    public override bool Input(Input input)
     {
         foreach (var routine in routines)
-            if (routine.active)
+            if (routine is { active: true, declaresInput: true })
                 Engine.RunEnclosed(()=>routine.Input(input), () =>
                 {
                     Debug.Log("The error casting ManagedRoutine will be deactivated to avoid further errors!",
                         DebugLogLevel.Error);
                     routine.active = false;
                 });
+        return true;
     }
 
     public override void Frame()
     {
         foreach (var routine in routines)
-            if (routine.active)
+            if (routine is { active: true, declaresFrame: true })
                 Engine.RunEnclosed(routine.Frame, () =>
                 {
                     Debug.Log("The error casting Routine will be deactivated to avoid further errors!",
@@ -47,7 +48,7 @@ public class ManagedRoutineProvider : ManagedRoutine, IRoutineProvider
     public override void Fixed()
     {
         foreach (var routine in routines)
-            if (routine.active)
+            if (routine is { active: true, declaresFixed: true })
                 Engine.RunEnclosed(routine.Fixed, () =>
                 {
                     Debug.Log("The error casting Routine will be deactivated to avoid further errors!",
@@ -59,7 +60,7 @@ public class ManagedRoutineProvider : ManagedRoutine, IRoutineProvider
     public override void PostFrame()
     {
         foreach (var routine in routines)
-            if (routine.active)
+            if (routine is { active: true, declaresPostFrame: true })
                 Engine.RunEnclosed(routine.PostFrame, () =>
                 {
                     Debug.Log("The error casting Routine will be deactivated to avoid further errors!",

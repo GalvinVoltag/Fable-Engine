@@ -39,8 +39,7 @@ public class Polygon : Shape
     {
         get
         {
-            var backend = Renderer.current.backend;
-            if (!compiled || !hosts.Contains(backend)) CompileShape(data);
+            if (!compiled || !hosts.Contains(Renderer.current.backend)) CompileShape(data);
             return _handle;
         }
     }
@@ -154,7 +153,7 @@ public class Polygon : Shape
     {
         IRenderBackend backend = Renderer.current.backend;
 
-        if (!compiled) // data changed: drop stale copies everywhere
+        if (hosts.Count > 0)
         {
             foreach (var host in hosts) host.DeleteBuffer(_handle);
             hosts.Clear();
@@ -163,7 +162,7 @@ public class Polygon : Shape
         if (!backend.CreateBuffer(_handle, new BufferDescription(BufferType.Vertex, _data.Length), _data))
             return;
 
-        if (!hosts.Contains(backend)) hosts.Add(backend);
+        hosts.Add(backend);
         compiled = true;
 
         Rectangle boundingRect = new Rectangle(0, 0, 0,0);

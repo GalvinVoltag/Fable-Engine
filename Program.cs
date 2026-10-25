@@ -1,37 +1,26 @@
-﻿using System.Buffers;
-using System.Diagnostics;
-using System.Globalization;
+﻿using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
-using System.Net.Sockets;
 using System.Numerics;
-using System.Buffers.Binary;
-using System.ComponentModel.Design;
-using System.IO.IsolatedStorage;
 using System.Reflection;
-using System.Reflection.Metadata.Ecma335;
-using System.Runtime.ConstrainedExecution;
+using System.Security.AccessControl;
 using FableEngine.Math;
 using FableEngine.Rendering;
 using FableEngine;
 using FableEngine.Core;
 using FableEngine.Debugging;
-using FableEngine.Math;
-using FableEngine.Rendering;
 using FableEngine.Transforms;
-using Silk.NET.GLFW;
 using Silk.NET.Input;
 using Silk.NET.Windowing;
 using Silk.NET.Maths;
+using Silk.NET.Vulkan;
 using Debug = FableEngine.Debugging.Debug;
 using Matrix4x4 = FableEngine.Math.Matrix4x4;
 using MouseButton = Silk.NET.Input.MouseButton;
 using Rectangle = FableEngine.Rendering.Rectangle;
-using Shader = FableEngine.Rendering.Shader;
 using Vector2 = FableEngine.Math.Vector2;
 using T2D = FableEngine.Transforms.Transform2D;
-using Vector = FableEngine.Math.Vector;
-using Vector3 = FableEngine.Math.Vector3;
-using Vector4 = FableEngine.Math.Vector4;
+using Vector = System.Numerics.Vector;
 
 // using FableEngine = FableEngine.FableEngine;
 
@@ -45,52 +34,25 @@ public class UIArea : IDestroyable, IDisposable
     public static List<UIArea> allAreas = new List<UIArea>();
     private static List<UIArea> dominantAreas = new List<UIArea>();
     private static bool initialized = false;
+    private static StandardCursor cs = StandardCursor.Arrow;
     
     private static void UpdateAll() // todo: performance
     {
-        foreach (UIArea area in dominantAreas)
-            area.hovering = false;
-        dominantAreas.Clear();
-        foreach (UIArea area in allAreas)
-        {
-            if (area.transform.destroyed) {
-                area.Destroy();
-                continue; }
-            if (area.lastParentVersion != area.transform.parentVersion || area.window == null) {
-                area.window = GameWindow.GetWindowOf(area.transform);
-                area.lastParentVersion = area.transform.parentVersion; }
-            if (area.window == null || area.window.destroyed || !area.window.focused) 
-                continue;
-            
-            Vector2 relativeMouse = area.transform.worldToLocal * area.window.input.GetMousePos();
-            if (!area.shape.PointIntersection(relativeMouse)) continue;
-            
-            area.hovering = true;
-            if (dominantAreas.Count == 0) {
-                dominantAreas.Add(area);
-                continue;
-            }
-            for (int i = 0; i < dominantAreas.Count; i++)
-            {
-                if (area.transform.depth >= dominantAreas[i].transform.depth || i == dominantAreas.Count - 1)
-                {
-                    dominantAreas.Insert(i, area);
-                    break;
-                }
-            }
-        }
-
-        StandardCursor cs = StandardCursor.Arrow;
+        cs = StandardCursor.Arrow;
+        GameWindow.allWindowsList[0].input.ChangeCursorType(cs);
         foreach (UIArea area in dominantAreas)
         {
             cs = area.cursorShape;
-            if (area.areaCombinations == null) continue;
-            foreach (var pair in area.areaCombinations)
-                if (pair.Key.hovering)
-                    cs = pair.Value;
+            // area.hovering = true;
+            if (area.areaCombinations != null)
+                foreach (var pair in area.areaCombinations)
+                    if (pair.Key.hovering)
+                        cs = pair.Value;
+            if (area.blocking) break;
         }
         if (dominantAreas.Count > 0) dominantAreas[0].window?.input?.ChangeCursorType(cs);
         else GameWindow.allWindowsList[0].input.ChangeCursorType(cs);
+        dominantAreas.Clear();
     }
     
     public StandardCursor cursorShape = StandardCursor.Arrow;
@@ -105,9 +67,9 @@ public class UIArea : IDestroyable, IDisposable
         }
     }
     private int lastParentVersion = -1;
+    private Func<bool>[] maskStack = [];
     private GameWindow? window = null;
     public Dictionary<UIArea, StandardCursor>? areaCombinations;
-    // Todo: add Dictionary<StandartCursor, StandardCursor>? shapeCombinations;
     public Shape shape;
     public bool blocking;
     public UIArea(Shape shape, Transform transform, bool blocking = true)
@@ -120,9 +82,51 @@ public class UIArea : IDestroyable, IDisposable
         this.transform = transform;
         window = GameWindow.GetWindowOf(transform);
         allAreas.Add(this);
+        this.hovering = false;
+    }
+    
+    public void UpdateState()
+    {
+        hovering = false;
+        dominantAreas.Remove(this);
+        if (transform.destroyed) {
+            Destroy();
+            return; }
+        if (lastParentVersion != transform.parentVersion || window == null) {
+            window = GameWindow.GetWindowOf(transform);
+            lastParentVersion = transform.parentVersion;
+        }
+        if (window == null || window.destroyed) 
+            return;
+        if (transform.matrix == Matrix4x4.identity)
+            return;
+        
+        Vector2 relativeMouse = transform.worldToLocal * window.input.GetMousePos();
+        if (!shape.PointIntersection(relativeMouse)) 
+            return;
+        
+        hovering = true;
+        if (dominantAreas.Count == 0)
+        {
+            dominantAreas.Add(this);
+            return;
+        }
+        for (int i = 0; i < dominantAreas.Count; i++)
+        {
+            if (transform.depth >= dominantAreas[i].transform.depth || i == dominantAreas.Count - 1)
+            {
+                dominantAreas.Insert(i, this);
+                break;
+            }
+        }
     }
 
-    public bool destroyed { get; private set; }
+    public bool destroyed
+    {
+        get;
+        private set;
+    }
+
     public void Destroy()
     {
         if (destroyed) return;
@@ -133,9 +137,11 @@ public class UIArea : IDestroyable, IDisposable
     public void Dispose()
     {
         allAreas.Remove(this);
+        dominantAreas.Remove(this);
     }
 
     public bool hovering { get; private set; } = false;
+
     public bool clicked
     {
         get
@@ -263,7 +269,6 @@ public class Rect : RenderRoutine
 
     public override void Draw()
     {
-        // if (owner is Scene s) rect = s.shapeRenderer.shape.shapeRect;
         ShapeRenderer.DrawRectangle(GameWindow.defaultShader, rect, new Color(1, 1, 1, 0.2f), transform.matrix);
         ShapeRenderer.DrawRectangle(GameWindow.defaultShader, new Rectangle(Vector2.Zero, Vector2.One, false), Color.red, transform.matrix);
     }
@@ -578,7 +583,6 @@ public class SimpleButton : RenderRoutine
     public static Thing CreateTemplate(Transform? parent, string text, Vector2? minSize = null, bool separateText = false, Action? OnClick = null)
     {
         if (separateText)
-        // if (false)
         {
             Thing newButton = new Thing(parent, text + " (SimpleButton)");
             Rect r = newButton.AddRoutine<Rect>();
@@ -617,6 +621,7 @@ public class SimpleButton : RenderRoutine
     
     public SimpleButton()
     {
+        isHovered = false;
         self = provider.GetOrAddRoutine<Rect>();
         area = new UIArea(shape, transform);
         area.cursorShape = StandardCursor.Hand;
@@ -631,6 +636,7 @@ public class SimpleButton : RenderRoutine
     public override void Input(Input input)
     {
         area.shape = shape;
+        area.UpdateState();
         if (!input.GetMouseButton(0)) isHovered = area.hovering;
         if (isHovered && input.GetMouseButton(0)) isDown = true;
         if (isDown && !input.GetMouseButton(0)) isDown = false;
@@ -747,6 +753,7 @@ public class Slider<T> : RenderRoutine where T : INumber<T>
         area.shape = handleRect;
         
         // if (!input.GetMouseButton(0)) hovering = handleRect.PointIntersection(relativeMouse);
+        areaHover = area.hovering;
         if (area.hovering && input.GetMouseButton(0)) carrying = true;
         if (carrying && !input.GetMouseButton(0)) carrying = false;
         
@@ -773,8 +780,10 @@ public class Slider<T> : RenderRoutine where T : INumber<T>
             if (target.getter().Equals(newValue)) onValueChanged?.Invoke();
             carrying = input.GetMouseButton(0);
         }
+        area.UpdateState();
     }
 
+    private bool areaHover = false;
     public override void Draw()
     {
         // Vector2 relativeMouse = transform.WorldToLocal(input.GetMousePos(0));
@@ -795,7 +804,7 @@ public class Slider<T> : RenderRoutine where T : INumber<T>
         {
             ShapeRenderer.DrawRectangle(shader, handleRect, Color.orange, tm);
         }
-        else if ( area.hovering )
+        else if ( areaHover )
         {
             ShapeRenderer.DrawRectangle(shader, handleRect, Color.red, tm);
         }
@@ -1221,15 +1230,14 @@ public class BasePortal : Scene
 
 public class InspectorPortal : BasePortal
 {
-    private Type[] AllPropertyEditors =>
-        field ??=
+    private static readonly Type[] AllPropertyEditors =
         [
             .. Assembly.GetExecutingAssembly().GetTypes()
                 .Where(type => type.IsAssignableTo(typeof(IMemberEditor)) && type != typeof(IMemberEditor) )
         ];
 
-    public IRoutineProvider? targetProvider = null;
-    private ContextMenu addRoutineMenu = new ContextMenu([]);
+    public object? targetObject = null;
+    // private ContextMenu addRoutineMenu = new ContextMenu([]);
     private Thing ScrollArea;
     
 
@@ -1248,52 +1256,14 @@ public class InspectorPortal : BasePortal
         ScrollArea.AddRoutine<FitRect>().fitY = false;
         
         ContextMenuProvider CMP = ScrollArea.AddRoutine<ContextMenuProvider>();
-        Stack<Thing> routineAdderElements = new Stack<Thing>();
-            
-        foreach (Type T in Assembly.GetExecutingAssembly().GetTypes().Where(type => type.IsAssignableTo(typeof(Routine))))
-        {
-            Thing thing = SimpleButton.CreateTemplate(null, TypeExtensions.GetPrettyName(T), new Vector2(18));
-            if (!T.IsGenericType)
-            {
-                thing.GetOrAddRoutine<SimpleButton>().onClick += () =>
-                {
-                    targetProvider?.AddRoutine(T);
-                    GenerateInspector((targetProvider as ITransformProvider)?.transform);
-                    ScrollArea.GetOrAddRoutine<ListLayout>().RecalculateLayout();
-                };
-                routineAdderElements.Push(thing);
-
-                continue;
-            }
-                
-            ContextMenuProvider CMP2 = thing.AddRoutine<ContextMenuProvider>();
-            Stack<Thing> routineSelectorElements = new Stack<Thing>();
-            foreach (Type TT in TypeExtensions.GetPossibleGenericTypes(T))
-            {
-                Thing thingy = SimpleButton.CreateTemplate(null, TypeExtensions.GetPrettyName(TT), new Vector2(18));
-                thingy.GetOrAddRoutine<SimpleButton>().onClick += () =>
-                {
-                    targetProvider?.AddRoutine(TT);
-                    GenerateInspector((targetProvider as ITransformProvider)?.transform);
-                    ScrollArea.GetOrAddRoutine<ListLayout>().RecalculateLayout();
-                };
-                routineSelectorElements.Push(thingy);
-                    
-            }
-
-            CMP2.menus = [new ContextMenu(routineSelectorElements)];
-
-        }
-
-        addRoutineMenu = new ContextMenu(routineAdderElements);
-        CMP.menus = [addRoutineMenu];
+        CMP.context = new Context(this, [], [typeof(TransformContextActions), typeof(RoutineProviderContextActions)]);
     }
     
     public static TextRenderer? targetEditingText = null;
     public static PropertyBinding<object?>? binding = null;
-    public override void Input(Input input)
+    public override bool Input(Input input)
     {
-        if (targetEditingText == null || binding == null) return;
+        if (targetEditingText == null || binding == null) return base.Input(input);
         
         targetEditingText.color = Color.blue;
         targetEditingText.text += input.GetKeyboardInputStream();
@@ -1330,32 +1300,53 @@ public class InspectorPortal : BasePortal
             targetEditingText = null;
             binding = null;
         }
+
+        return base.Input(input);
     }
-    
-    public void GenerateInspector(Transform? child)
+
+    private int oldRoutineCount = 0;
+    public override void Frame()
+    {
+        base.Frame();
+        switch (targetObject)
+        {
+            case null:
+                return;
+            case IRoutineProvider RP when RP.routines.Length != oldRoutineCount:
+                GenerateInspector(targetObject);
+                oldRoutineCount = RP.routines.Length;
+                break;
+        }
+    }
+
+    public void GenerateInspector(object? target)
     {
         // if (child.attachedObject is IDestroyable destroyable) destroyable.Destroy();
-        if (child == null) return;
+        if (target == null) return;
         foreach (Transform dest in ScrollArea.transform.children.ToArray())
             dest.Destroy();
-        if (child.attachedObject is not IRoutineProvider MRP) return;
-        targetProvider = MRP;
         
-        SimpleButton.CreateTemplate(ScrollArea.transform, child.GetType().Name, new Vector2(20));
-        ListLayout transformLayout = new Thing(ScrollArea.transform).GetOrAddRoutine<ListLayout>();
-        GeneratePropertyList(transformLayout, child);
-        Debug.Log("Generating inspector", DebugLogLevel.Error);
-        
-        foreach (Routine R in targetProvider.routines)
+        targetObject = target;
+
+        if (target is ITransformProvider TP)
         {
-            SimpleButton.CreateTemplate(ScrollArea.transform, TypeExtensions.GetPrettyName(R.GetType()), new Vector2(20), true);
-            ListLayout layout = new Thing(ScrollArea.transform).GetOrAddRoutine<ListLayout>();
-            GeneratePropertyList(layout, R);
+            SimpleButton.CreateTemplate(ScrollArea.transform, TP.transform.GetType().Name, new Vector2(20));
+            ListLayout transformLayout = new Thing(ScrollArea.transform).GetOrAddRoutine<ListLayout>();
+            GeneratePropertyList(transformLayout, TP.transform);
+        }
+
+        if (target is IRoutineProvider RP)
+        {
+            foreach (Routine R in RP.routines)
+            {
+                SimpleButton.CreateTemplate(ScrollArea.transform, TypeExtensions.GetPrettyName(R.GetType()), new Vector2(20), true);
+                ListLayout layout = new Thing(ScrollArea.transform).GetOrAddRoutine<ListLayout>();
+                GeneratePropertyList(layout, R);
+            }
         }
 
         ScrollArea.GetOrAddRoutine<ListLayout>().RecalculateLayout();
     }
-    
     public void GeneratePropertyList(ListLayout layout, object R)
     {
         foreach (MemberInfo member in R.GetType().GetMembers(BindingFlags.Public | BindingFlags.Instance).Where(m => m is  PropertyInfo or FieldInfo))
@@ -1394,61 +1385,106 @@ public class InspectorPortal : BasePortal
 
 public class SceneHierarchyPortal : BasePortal
 {
-    // public static TextRenderer? targetEditingText = null;
-    // public static PropertyBinding<object?>? binding = null;
-    
     public Transform? targetTree;
     public InspectorPortal? targetPortal = null;
     
-    private ListLayout _listLayout { get { return field ??= GetOrAddRoutine<ListLayout>(); } }
+    private ListLayout _listLayout => field ??= GetOrAddRoutine<ListLayout>();
     private List<Thing> items = [];
-    private IRoutineProvider? targetProvider;
+    private List<Transform> itemTargets = [];
+    private List<int> oldDepths = [];
     
     public void ClearList()
     {
-        foreach (Thing sb in items)
-        {
+        foreach (Thing sb in items) {
             sb.Destroy();
         }
         items.Clear();
+        itemTargets.Clear();
+        oldDepths.Clear();
     }
     
-    public void GenerateHierarchy(Transform? t = null, int nesting = 0)
+    public void GenerateHierarchy(Transform? target = null, int nesting = 0)
     {
-        if (t == null)
+        if (target == null)
         {
-            t = targetTree;
-            if (t == null) return;
+            target = targetTree;
+            if (target == null) return;
             ClearList();
         }
 
-        foreach (Transform child in t.children)
+        foreach (Transform child in target.children)
         {
-            // Debug.Log("going about it");
-            Thing targetBtn = SimpleButton.CreateTemplate(transform, child.attachedObject.name + " (" + child.totalChildren + ")", new Vector2(18));
+            // Thing targetBtn = SimpleButton.CreateTemplate(transform, child.attachedObject.name + " (" +
+            //                                             TypeExtensions.GetPrettyName(child.GetType()) + ")", new Vector2(18));
+            Thing targetBtn = SimpleButton.CreateTemplate(transform, child.attachedObject.name + " (" +
+                                                                     (child.depth - targetTree?.depth) + ")", new Vector2(18));
             targetBtn.GetRoutine<SimpleButton>()?.onClick = () =>
             {
                 if (targetPortal == null || FableEngine.Input.current.GetKey(Key.ShiftLeft))
                 {
                     InspectorPortal inspector = new InspectorPortal();
-                    inspector.GenerateInspector(child);
-                    // new GameWindow(WindowOptions.Default with { Size = new Vector2D<int>(400, 400) }).scene = inspector;
+                    inspector.GenerateInspector(child.attachedObject);
                 }else {
-                    targetPortal?.GenerateInspector(child);
+                    targetPortal?.GenerateInspector(child.attachedObject);
                 }
             };
             targetBtn.GetRoutine<Rect>()?.outsidePadding.Left = nesting * 20;
+            targetBtn.AddRoutine<ContextMenuProvider>().context = new Context(child.attachedObject);
             items.Add(targetBtn);
+            itemTargets.Add(child);
+            oldDepths.Add(child.depth - targetTree?.depth??0);
             if (child.children.Count > 0) GenerateHierarchy(child, nesting+1);
         }
+        _listLayout.RecalculateLayout();
     }
     
-    public override void PostFrame()
+    public override void Frame()
     {
-        base.PostFrame();
+        base.Frame();
         if (targetTree == null) return;
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (oldDepths[i] == (itemTargets[i].depth - targetTree.depth)) continue;
+            GenerateHierarchy();
+            break;
+        }
         if (items.Count != targetTree.totalChildren)
             GenerateHierarchy();
+    }
+}
+
+public class GameScenePortal : BasePortal
+{
+    public Scene gameScene;
+
+    private ContextMenuProvider CMP;
+
+    public GameScenePortal(Scene gameScene, Transform? parent = null)
+    {
+        transform.parent = parent;
+        this.gameScene = gameScene;
+        this.gameScene.transform.parent = transform;
+        this.backgroundColor = Color.yellow;
+        CMP = GetOrAddRoutine<ContextMenuProvider>();
+        CMP.context = new Context(this, [], [typeof(TransformContextActions), typeof(RoutineProviderContextActions)]);
+
+        // rect.onShapeChanged = UpdateShape;
+    }
+
+    public override void Frame()
+    {
+        gameScene?.rectangle = rectangle;
+    }
+
+    // private void UpdateShape(Rectangle newShape)
+    // {
+    //     gameScene?.rectangle = newShape;
+    // }
+
+    public override void Dispose()
+    {
+        // rect.onShapeChanged -= UpdateShape;
+        base.Dispose();
     }
 }
 
@@ -1456,16 +1492,10 @@ public class SceneHierarchyPortal : BasePortal
 public class ShowDeclared : Attribute;
 
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
-public class Slidable : Attribute
+public class Slidable(float min, float max) : Attribute
 {
-    public float min;
-    public float max;
-
-    public Slidable(float min, float max)
-    {
-        this.min = min;
-        this.max = max;
-    }
+    public float min = min;
+    public float max = max;
 }
 
 public class Positioner : Routine
@@ -1502,33 +1532,23 @@ public class Positioner : Routine
 
 }
 
-// not sure if this thing is actually called a Binary Tree
+// todo: not sure if this thing is actually called a Binary Tree
 public class BinaryTree : Routine
 {
     public float percentage = 0.5f;
     public float borderThickness =5;
-    // public bool vertical
-    // {
-    //     get;
-    //     set
-    //     {
-    //         field = value;
-    //         if (value)
-    //             rescaler.cursorShape = StandardCursor.VResize;
-    //         else
-    //             rescaler.cursorShape = StandardCursor.HResize;
-    //     }
-    // } = false;
+    public bool reverse = false;
 
     public int axis
     {
         get;
         set
         {
-            field = value;
+            field = Math.Abs(value);
+            reverse = (value < 0);
             rescaler.cursorShape = value == 1 ? StandardCursor.VResize : StandardCursor.HResize;
         }
-    } = 0;
+    } = VectorAxis.X;
     public Rect? aSide;
     public Rect? bSide;
     public bool ignoreMinSize = false;
@@ -1575,6 +1595,7 @@ public class BinaryTree : Routine
 
     public override void Input(Input input)
     {
+        rescaler.UpdateState();
         if (axis == 1)
             rescaler.shape = new Rectangle( (self.origin + new Vector2(0, (percentage-0.5f)*self.height)), new Vector2(self.width, 10), true);
         else
@@ -1603,50 +1624,229 @@ public class BinaryTree : Routine
     }
 }
 
-public interface IContextProvider
+public readonly struct Context(object target, object[]? objects = null, Type[]? suppressed = null)
 {
-    public ContextMenu GenerateContextMenu();
+    public static IContextAction[] AllContextActions =>
+        field ??=
+        [
+            .. Assembly.GetExecutingAssembly().GetTypes()
+                .Where(type => type.IsAssignableTo(typeof(IContextAction)) && type != typeof(IContextAction) )
+                .Select(type => (IContextAction)Activator.CreateInstance(type))
+        ];
+
+    public readonly object target = target;
+    public readonly object[] related = objects ?? [];
+    public readonly Type[] suppressed = suppressed ?? [];
 }
 
-public class ContextMenu
+public interface IContextAction
 {
-    public List<Thing> elements = new();
-    public float height { get; private set; }
+    bool ValidateAndGenerate(Context context, ContextWindow ctxWindow, out ITransformProvider output);
+}
 
-    public ContextMenu(Dictionary<string, Action> elements, float textSize = 18)
-    {
-        height = 0;
-        foreach (var pair in elements)
+public class ContextWindow : IDestroyable, IDisposable
+{
+    public Scene scene { get; private set; }
+    public bool destroyed { get; private set; }
+
+    public GameWindow? window { get; private set; }
+
+    public bool closeAfterClick = true;
+    
+    private ListLayout layout;
+    
+    public ContextWindow(GameWindow parent, Vector2 windowPosition, Context context) {
+        scene = new Scene();
+        // scene.rect.insidePadding = new Rectangle(0);
+
+        window = new GameWindow(WindowOptions.Default with
         {
-            if (pair.Key != "")
+            Position = (Vector2D<int>)(windowPosition + Vector2.One),
+            Size = new Vector2D<int>(128, 32),
+            WindowBorder = WindowBorder.Hidden,
+            TopMost = true,
+            Title = "context window "
+        });
+        window.dontInputWhenUnfocused = false;
+        // parent.window.Focus();
+        window.scene = this.scene;
+        window.title += window.id;
+        window.backgroundColor = Color.gray;
+        // window.window.Closing += () =>
+        // {
+        //     window.UnregisterWindowMethod(UpdateHeight);
+        //     window = null;
+        // };
+        window.parent = parent;
+
+        layout = scene.AddRoutine<ListLayout>();
+        layout.self.insidePadding = new Rectangle(2);
+        layout.direction = ListLayout.Direction.TopToBottom;
+        
+        window.RegisterWindowMethod(WindowMethodPosition.BeforeRender, UpdateHeight);
+
+        foreach (IContextAction action in Context.AllContextActions)
+        {
+            if (context.suppressed.Contains(action.GetType())) continue;
+            if (action.ValidateAndGenerate(context, this, out ITransformProvider t))
             {
-                Thing button = SimpleButton.CreateTemplate(null, pair.Key, new Vector2(textSize), true);
-                button.GetRoutine<SimpleButton>()?.onClick = pair.Value;
-                button.GetRoutine<Rect>()?.outsidePadding = new Rectangle(0, 1, 0, 1);
-                this.elements.Add(button);
-                height += button.GetOrAddRoutine<Rect>().minSize.y;
-                continue;
+                t.transform.parent = scene.transform;
             }
-            Thing separator = new Thing();
-            separator.AddRoutine<Rect>().minSize = new Vector2(2);
-            height += separator.GetOrAddRoutine<Rect>().minSize.y;
-            this.elements.Add(separator);
         }
     }
-    public ContextMenu(IEnumerable<Thing> elements)
+    
+    private void UpdateHeight(GameWindow gameWindow)
     {
-        this.elements = elements as List<Thing> ?? [.. elements];
-        foreach (Thing t in this.elements)
-        {
-            t.GetRoutine<Rect>()?.outsidePadding = new Rectangle(0, 1, 0, 1);
-            height += t.GetOrAddRoutine<Rect>().minSize.y;
-        }
+        if (!(window?.focused??false) && window?.children.Count == 0) window.Close();
+        if (window?.window == null) return;
+        gameWindow.height = (int)layout.selfRect.height;
+        scene.rectangle = new Rectangle(0, 0, window.window.Size.X, window.window.Size.Y);
+        if (closeAfterClick &&
+            (gameWindow.input.GetMouseButton(MouseButton.Left) ||
+             (gameWindow.parent?.input.GetMouseButton(MouseButton.Left) ?? false))) gameWindow.Close();
     }
+    public void Destroy()
+    {
+        destroyed = true;
+        window?.UnregisterWindowMethod(UpdateHeight);
+        window?.Close();
+        window = null;
+        scene.Destroy();
+        Engine.DisposeLater(this);
+    }
+    public void Dispose()
+    {
+    }
+}
 
-    public void CarryElements(Transform? parent)
+public class GameSceneContextActions : IContextAction
+{
+    public bool ValidateAndGenerate(Context context, ContextWindow contextWindow, out ITransformProvider output)
     {
-        foreach (Thing t in elements)
-            t.transform.parent = parent;
+        output = null!;
+        if (context.target is not GameScenePortal S) return false;
+        
+        Thing options = new Thing(contextWindow.scene.transform, "Game Scene Options", typeof(Transform2D));
+        SimpleButton.CreateTemplate(options.transform, "New 2D Thing", new Vector2(16), false,
+            () =>
+            {
+                GameWindow? win = GameWindow.GetWindowOf(S.transform);
+                if (win == null) return;
+                Thing t = new Thing(S.gameScene.transform);
+                t.AddRoutine<ShapeRenderer>().shape = new Rectangle(-20, 40);
+                t.transform.Cast<T2D>().position = S.gameScene.transform.worldToLocal * GameWindow.GetWindowOf(S.transform)?.input.GetMousePos()??Vector2.Zero;
+                contextWindow.Destroy();
+            }).GetOrAddRoutine<SimpleButton>().self.outsidePadding = new Rectangle(1);
+        SimpleButton.CreateTemplate(options.transform, "New 3D Thing", new Vector2(16), false,
+            () =>
+            {
+                GameWindow? win = GameWindow.GetWindowOf(S.transform);
+                if (win == null) return;
+                Thing t = new Thing(S.gameScene.transform);
+                t.AddRoutine<ShapeRenderer>().shape = new Rectangle(-20, 40);
+                t.transform.Cast<T2D>().position = S.gameScene.transform.worldToLocal * GameWindow.GetWindowOf(S.transform)?.input.GetMousePos()??Vector2.Zero;
+                contextWindow.Destroy();
+            }).GetOrAddRoutine<SimpleButton>().self.outsidePadding = new Rectangle(0);
+        options.AddRoutine<ListLayout>().self.insidePadding = new Rectangle(1);
+        options.GetRoutine<ListLayout>()?.self.outsidePadding = new Rectangle(0);
+        output = options;
+        return true;
+    }
+}
+
+public class TransformContextActions : IContextAction
+{
+    public bool ValidateAndGenerate(Context context, ContextWindow contextWindow, out ITransformProvider output)
+    {
+        output = null!;
+        if (context.target is not ITransformProvider T) return false;
+        
+        Debug.Log("transform context actions triggered");
+        Thing options = new Thing(contextWindow.scene.transform, "Thing Options", typeof(Transform2D));
+        options.AddRoutine<ListLayout>().self.insidePadding = new Rectangle(1);
+        options.GetRoutine<ListLayout>()?.self.outsidePadding = new Rectangle(0);
+        SimpleButton.CreateTemplate(options.transform, "New Child", new Vector2(16), false,
+            () =>
+            {
+                Thing child = new Thing(T.transform, "Thing (2D)");
+                contextWindow.Destroy();
+            }).GetOrAddRoutine<SimpleButton>().self.outsidePadding = new Rectangle(1);
+        SimpleButton.CreateTemplate(options.transform, "Unparent", new Vector2(16), false,
+            () =>
+            {
+                T.transform.parent = Scene.GetSceneOf(T.transform)?.transform;
+            }).GetOrAddRoutine<SimpleButton>().self.outsidePadding = new Rectangle(1);
+        
+        output = options;
+        return true;
+    }
+}
+
+public class RoutineProviderContextActions : IContextAction
+{
+    public bool ValidateAndGenerate(Context context, ContextWindow contextWindow, out ITransformProvider output)
+    {
+        switch (context.target)
+        {
+            case IRoutineProvider R:
+            {
+                SimpleButton button = SimpleButton.CreateTemplate(contextWindow.scene.transform, "Add Routine",
+                    new Vector2(16), false,
+                    () => { Debug.Log("Unimplemented", DebugLogLevel.Error); }
+                ).GetOrAddRoutine<SimpleButton>();
+                button.provider.GetOrAddRoutine<SimpleButton>().self.outsidePadding = new Rectangle(1);
+                ContextMenuProvider cmp = button.provider.AddRoutine<ContextMenuProvider>();
+                cmp.context = new Context(this, [context.target]);
+                cmp.activateOnHover = true;
+                output = (button.provider as ITransformProvider)!;
+                return true;
+            }
+            case RoutineProviderContextActions RPCA:
+            {
+                Thing options = new Thing(contextWindow.scene.transform, "Thing Options", typeof(Transform2D));
+                options.AddRoutine<ListLayout>().self.insidePadding = new Rectangle(0);
+                options.GetRoutine<ListLayout>()?.self.outsidePadding = new Rectangle(0);
+
+                switch (context.related)
+                {
+                    case [IRoutineProvider RP]:
+                    {
+                        foreach (Type T in Assembly.GetExecutingAssembly().GetTypes().Where(type => type.IsAssignableTo(typeof(Routine)) && type != typeof(Routine) ))
+                        {
+                            Thing thing = SimpleButton.CreateTemplate(options.transform, TypeExtensions.GetPrettyName(T),
+                                new Vector2(18));
+                            thing.GetRoutine<SimpleButton>()?.self.outsidePadding = new Rectangle(1);
+                            if (!T.IsGenericType) {
+                                thing.GetOrAddRoutine<SimpleButton>().onClick += () => { RP.AddRoutine(T); };
+                                continue;
+                            }
+
+                            ContextMenuProvider CMP2 = thing.AddRoutine<ContextMenuProvider>();
+                            CMP2.context = new Context(RPCA, [T, RP]);
+                        }
+                        break;
+                    }
+                    case [Type Ty, IRoutineProvider RP2]:
+                    {
+                        foreach (Type TT in TypeExtensions.GetPossibleGenericTypes(Ty))
+                        {
+                            Thing thingy = SimpleButton.CreateTemplate(options.transform, TypeExtensions.GetPrettyName(TT), new Vector2(18));
+                            thingy.GetRoutine<SimpleButton>()?.self.outsidePadding = new Rectangle(1);
+                            thingy.GetOrAddRoutine<SimpleButton>().onClick += () => { RP2.AddRoutine(TT); };
+                        }
+                        break;
+                    }
+                    default:
+                        output = null!;
+                        return false;
+                }
+                output = options;
+                return true;
+            }
+            default:
+                output = null!;
+                return false;
+        }
     }
 }
 
@@ -1654,13 +1854,12 @@ public class ContextMenuProvider : Routine
 {
     private UIArea area;
     private Rect self;
-    private GameWindow? gw;
-    private bool focusedOnce;
+    private ContextWindow? contextMenu = null;
 
     public bool activateOnHover = false;
-    public ContextMenu[] menus = [];
-    // public List<Thing> elements = new();
+    public Vector2 contextMenuPosition = Vector2.Zero;
     public Vector2 clickPosition { get; private set; } = Vector2.Zero;
+    public Context context = new();
 
     public ContextMenuProvider()
     {
@@ -1668,74 +1867,42 @@ public class ContextMenuProvider : Routine
         area = new UIArea(self.rect, transform, false);
         // layout.self.insidePadding = new Rectangle(5);
     }
-    /// <summary>
-    /// close the context window provided by this provider
-    /// </summary>
+
     public void Close()
     {
-        gw?.Close();
+        contextMenu?.Destroy();
+        contextMenu = null;
     }
     public override void Input(Input input)
     {
+        area.UpdateState();
         area.shape = self.rect;
-        if (area.rightclicked && gw == null)
+        if (activateOnHover)
         {
-            // foreach (Transform t in transform.GetAllChildren(true))
-            // {
-            //     if (t.attachedObject is IContextProvider ICP) sources = 
-            // }
-            
-            WindowOptions wo = WindowOptions.Default;
-            clickPosition = input.GetMousePos();
-            wo.Position = input.GetScreenMousePosIntegrated();
-            wo.Size = new Vector2D<int>(128, 32);
-            wo.WindowBorder = WindowBorder.Hidden;
-            wo.TopMost = true;
-            wo.Title = "context window";
-            gw = new GameWindow(wo);
-            gw.title += gw.id;
-            gw.backgroundColor = Color.gray;
-            gw.window.FocusChanged += b =>
+            switch (area.hovering)
             {
-                if (!b && gw.children.Count == 0) Close();
-            };
-            gw.window.Closing += () =>
-            {
-                // foreach (ContextMenu menu in menus)
-                //     menu.CarryElements(null);
-                gw = null;
-            };
-            gw.parent = input.parentWindow;
-
-            foreach (ContextMenu CM in menus)
-            {
-                // ContextMenu CM = ICP.GenerateContextMenu();
-                CM.CarryElements(gw.scene.transform);
+                case true when contextMenu == null:
+                    // Debug.Log(GameWindow.current.size);
+                    // Debug.Log(transform.Cast<T2D>().position);
+                    contextMenu = new ContextWindow(GameWindow.current, 
+                        GameWindow.current.position + (GameWindow.current.size - transform.Cast<T2D>().position) + new Vector2(self.width/2, -self.height/2), context);
+                    break;
+                case false when contextMenu != null && !area.hovering:
+                    contextMenu.Destroy();
+                    contextMenu = null;
+                    break;
             }
-            ListLayout layout = gw.scene.AddRoutine<ListLayout>();
-            layout.self.insidePadding = new Rectangle(2);
-            layout.direction = ListLayout.Direction.TopToBottom;
-            layout.Draw();
-
-            gw.RegisterWindowMethod( WindowMethodPosition.BeforeRender, () =>
+        } else {
+            if (area.rightclicked && contextMenu == null)
             {
-                if (gw.aboutToClose) return;
-                float width = 140;
-                float height = menus.Sum(menu => menu.height);
-
-                gw.window.Size = new Vector2D<int>((int)width,
-                    (int)(height + (self.insidePadding.Top + self.insidePadding.Bottom) / 2));
-                // gw.window.Size = new Vector2D<int>((int)width, 500);
-                gw.scene.rectangle = new Rectangle(0, 0, gw.window.Size.X, gw.window.Size.Y);
-            });
-            
-            
-            // Debug.Log(gw.scene.rectangle);
-            gw.scene.rectangle = new Rectangle(0, 0, gw.scene.rectangle.width, gw.scene.rectangle.height);
-            // Debug.Log(gw.scene.rectangle);
+                contextMenu = new ContextWindow(GameWindow.current, input.GetScreenMousePos(), context);
+            }
         }
+
+        if (contextMenu?.window?.destroyed??true) Close();
     }
 }
+
 
 public class MaskShape : RenderRoutine
 {
@@ -1888,47 +2055,6 @@ internal static class Program
         // inspectWindow.GetOrAddRoutine<MaskShape>().mask = new Mask(inspectorRect.Draw);
         
         
-        InspectorPortal editorInspectorPortal = new InspectorPortal();
-        // ListLayout Ll = firstlist.AddRoutine<ListLayout>();
-        // Ll.self.rect.size = new Vector2(100, 100);
-        // Ll.stretch = false;
-        // firstlist.AddRoutine<WheelMotion>();
-
-        // inspectWindow.AddRoutine<WheelMotion>();
-        // editorInspectorPortal.AddRoutine<FitRect>().fitY = false;
-        
-        
-        
-        Scene gameScene = new Scene();
-        gameScene.transform.parent = otherScene.transform;
-        gameScene.backgroundColor = Color.red;
-        ContextMenuProvider cmp = gameScene.AddRoutine<ContextMenuProvider>();
-        cmp.menus = [
-            new ContextMenu(
-            [
-                SimpleButton.CreateTemplate(null, "New Thing(2D)", new Vector2(18), false, () =>
-                {
-                    GameWindow? win = GameWindow.GetWindowOf(gameScene.transform);
-                    if (win == null) return;
-                    Thing t = new Thing(gameScene.transform);
-                    t.AddRoutine<ShapeRenderer>().shape = new Rectangle(-20, 40);
-                    t.transform.Cast<T2D>().position = cmp.transform.worldToLocal * cmp.clickPosition;
-                    // Debug.Log(cmp.transform.localToWorld * cmp.clickPosition);
-                    cmp.Close();
-                }),
-                SimpleButton.CreateTemplate(null, "New Thing(3D)", new Vector2(18)),
-                SimpleButton.CreateTemplate(null, "Settings", new Vector2(18)),
-                SimpleButton.CreateTemplate(null, "Delete", new Vector2(18)),
-                SimpleButton.CreateTemplate(null, "Play", new Vector2(18)),
-                SimpleButton.CreateTemplate(null, "Group With", new Vector2(18)),
-                SimpleButton.CreateTemplate(null, "New Light", new Vector2(18)),
-                SimpleButton.CreateTemplate(null, "New Sound", new Vector2(18)),
-                Slider<int>.CreateTemplate(null, 0, 5),
-                SimpleButton.CreateTemplate(null, "Disparent", new Vector2(18)),
-                SimpleButton.CreateTemplate(null, "Make Root", new Vector2(18))
-                ]
-            )
-        ];
         
         
         
@@ -1942,46 +2068,26 @@ internal static class Program
         
         
         
-        hierarchyPortal.targetTree = gameScene.transform;
+        InspectorPortal editorInspectorPortal = new InspectorPortal();
+        
+        GameScenePortal gameScene = new GameScenePortal(new Scene("Game Scene"), otherScene.transform);
+        gameScene.gameScene.backgroundColor = Color.red;
+        
+        
+        hierarchyPortal.targetTree = gameScene.gameScene.transform;
         hierarchyPortal.targetPortal = editorInspectorPortal;
-
-        
-        
         
         window.scene.GetOrAddRoutine<BinaryTree>().aSide = hierarchyPortal.rect;
         window.scene.GetOrAddRoutine<BinaryTree>().bSide = otherScene.rect;
         window.scene.GetOrAddRoutine<BinaryTree>().ignoreMinSize = true;
+        window.scene.GetOrAddRoutine<BinaryTree>().percentage = 0.3f;
         
-
-        // new Thing(inspectWindow.transform).AddRoutine<Rect>().maxSize.y = 10;
-        //
-        // inspectWindow.transform.parent = otherScene.transform;
-        // inspectWindow.transform.Cast<T2D>().position = Vector2.Zero;
 
         editorInspectorPortal.transform.parent = otherScene.transform;
         otherScene.GetOrAddRoutine<BinaryTree>().bSide = editorInspectorPortal.rect;
         otherScene.GetOrAddRoutine<BinaryTree>().aSide = gameScene.GetOrAddRoutine<Rect>();
         otherScene.GetOrAddRoutine<BinaryTree>().axis = 1;
         otherScene.GetOrAddRoutine<BinaryTree>().ignoreMinSize = true;
-        
-        
-        // Thing firstButton = SimpleButton.CreateTemplate(editorInspectorPortal.transform, nameof(firstButton), new Vector2(18, 18));
-        // firstButton.GetRoutine<SimpleButton>()?.onClick = () =>
-        // {
-        //     firstButton.transform.parent?.children[1].attachedObject?.Destroy();
-        // };
-        // SimpleButton.CreateTemplate(editorInspectorPortal.transform, "one", new Vector2(18, 18));
-        // SimpleButton.CreateTemplate(editorInspectorPortal.transform, "two", new Vector2(18, 18));
-        // new Thing(editorInspectorPortal.transform).AddRoutine<Rect>().provider.AddRoutine<Slider<double>>();
-        // new Thing(editorInspectorPortal.transform).AddRoutine<Rect>().provider.AddRoutine<Slider<int>>();
-        // Slider<int>.CreateTemplate(editorInspectorPortal.transform, 0, 10);
-        // Slider<float>.CreateTemplate(editorInspectorPortal.transform, 0, 10);
-        // new Thing(editorInspectorPortal.transform).AddRoutine<Rect>().provider.AddRoutine<SimpleButton>().onClick = () =>
-        //     {
-        //         new Thing(editorInspectorPortal.transform).AddRoutine<Rect>().provider.AddRoutine<SimpleButton>();
-        //     };   
-        
-        // new Thing(inspectWindow.transform).AddRoutine<Rect>();
         
         
         Thing fpsCounter = new Thing(window.scene.transform);

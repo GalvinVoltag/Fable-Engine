@@ -98,12 +98,13 @@ public class Debug : INameable
             Console.BackgroundColor = levelBackgroundColors(lev);
         }
 
-        bool sameLine = false;
-        if (objects.Length == lastLine.Length)
+        bool sameLine = true;
+        if (objects.Length != lastLine.Length) sameLine = false;
+        else
             for (int i = 0; i < objects.Length; i++)
             {
-                if (!objects[i].Equals(lastLine[i])) break;
-                sameLine = true;
+                if (objects[i].Equals(lastLine[i])) continue;
+                sameLine = false;
                 break;
             }
 

@@ -1,5 +1,6 @@
 using FableEngine.Math;
 using FableEngine.Core;
+using FableEngine.Debugging;
 using FableEngine.Math;
 
 namespace FableEngine.Transforms;
@@ -30,6 +31,7 @@ public class Transform : IDestroyable
             if (cached || matrixOverride) return field;
             field = GetLocalTransformMatrix();
             if (parent != null) field = parent.matrix * field;
+            worldToLocal = field.Inverse();
             cached = true;
             return field;
         }
@@ -60,8 +62,19 @@ public class Transform : IDestroyable
             }
         }
     } = false;
-    public int depth { get; private set; } = 0;
-    
+
+    public int depth
+    {
+        get;
+        private set
+        {
+            if (field != value)
+                foreach (Transform child in children)
+                    child.depth = value + 1;
+            field = value;
+        }
+    } = 0;
+
     [ShowDeclared]
     public Transform? parent
     {
@@ -70,6 +83,7 @@ public class Transform : IDestroyable
         {
             if (field == value) return;
             parentVersion++;
+            cached = false;
             if (field != null)
             {
                 field.children.Remove(this);
@@ -130,9 +144,9 @@ public class Transform : IDestroyable
     {
         get
         {
-            if (worldToLocalCache != null) return (Matrix4x4)worldToLocalCache;
+            if (worldToLocalCache != null) return worldToLocalCache.Value;
             worldToLocalCache = matrix.Inverse();
-            return (Matrix4x4)worldToLocalCache;
+            return worldToLocalCache.Value;
         }
         set => worldToLocalCache = value;
     }
@@ -212,5 +226,9 @@ public class Transform : IDestroyable
     /// Method used to calculate local transform matrix from internal values such as position, rotation, scale, etc.
     /// </summary>
     /// <returns>local transform matrix, not including matrix override</returns>
-    public virtual Matrix4x4 GetLocalTransformMatrix() => Matrix4x4.identity;
+    public virtual Matrix4x4 GetLocalTransformMatrix()
+    {
+        Debug.Log("identity returned as matrix");
+        return Matrix4x4.identity;
+    }
 }

@@ -25,7 +25,7 @@ public class Input : IDestroyable, IDisposable
         foreach (IKeyboard k in input.Keyboards) HandleDeviceConnection(k, true);
         parent.RegisterWindowMethod(WindowMethodPosition.AfterInput, InputUpdate);
     }
-    private void InputUpdate()
+    private void InputUpdate(GameWindow gameWindow)
     {
         foreach (IKeyboard keyboard in lastChar.Keys)
         {

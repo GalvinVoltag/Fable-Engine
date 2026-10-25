@@ -49,18 +49,6 @@ public abstract class Routine : IDestroyable, IActivatable
     }
 
     public T Transform<T>() where T : Transform => (T)transform;
-    // public Transform2D transform2D
-    // {
-    //     get
-    //     {
-    //         if (owner is not ITransformProvider transformProvider)
-    //             throw new NullReferenceException(
-    //                 "Trying to access Transform2D of owner" + (owner!=null?owner.GetType():"NULL") + ", but owner ITransformProvider does not utilize one.");
-    //         if (transformProvider.transform is not Transform2D d) throw new NullReferenceException(
-    //             "Tried to access Transform2D of owner" + owner.GetType() + ", but it was not a Transform2D");
-    //         return d;
-    //     }
-    // }
 
     /// <summary>
     /// If this Routine's Wake has been called since its creation. If this is set to true, Wake() will be called next frame before anything.
@@ -72,11 +60,20 @@ public abstract class Routine : IDestroyable, IActivatable
     /// </summary>
     protected Routine()
     {
-        // Debug.Log($"[Routine] {this.GetType().Name}");
-        // if ( !All.ContainsKey(this.GetType()) ) All.Add(this.GetType(), new List<Routine>());
-        // All[this.GetType()].Add(this);
         owner = OwnerCandidate ?? throw new Exception("tried to create a Routine with no owner");
+
+        declaresWake = GetType().GetMethod(nameof(Wake))?.GetBaseDefinition().DeclaringType != GetType();
+        declaresFrame = GetType().GetMethod(nameof(Frame))?.GetBaseDefinition().DeclaringType != GetType();
+        declaresInput = GetType().GetMethod(nameof(Input))?.GetBaseDefinition().DeclaringType != GetType();
+        declaresFixed = GetType().GetMethod(nameof(Fixed))?.GetBaseDefinition().DeclaringType != GetType();
+        declaresPostFrame = GetType().GetMethod(nameof(PostFrame))?.GetBaseDefinition().DeclaringType != GetType();
     }
+    
+    public bool declaresWake { get; private set; }
+    public bool declaresFrame { get; private set; }
+    public bool declaresInput { get; private set; }
+    public bool declaresFixed { get; private set; }
+    public bool declaresPostFrame { get; private set; }
     
     /// <summary>
     /// Called when this Routine is created
@@ -124,8 +121,5 @@ public abstract class Routine : IDestroyable, IActivatable
     public virtual void Destroy()
     {
         destroyed = true;
-        // owner = null;
-        // All[type].Remove(this);
-        // if (All[type].Count == 0) All.Remove(type);
     }
 }

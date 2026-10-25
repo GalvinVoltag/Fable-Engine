@@ -9,7 +9,8 @@ namespace FableEngine.Rendering;
 public class TextRenderer : RenderRoutine
 {
     public static readonly Shader defaultFontShader = new Shader(
-        "default Font Shader", 
+        "default Font Shader",
+        new GLSLSource(
         """
         #version 330 core
         layout (location = 0) in vec2 aPosition;
@@ -44,7 +45,8 @@ public class TextRenderer : RenderRoutine
             vec4 col = vertexColor * edge + outlineColor * (1-edge);
             FragColor = vec4(col.rgb, a*edgeRoughness);
         }
-        """);
+        """)
+        );
     public FontAtlas fontAtlas;
     public Polygon textPolygon;
     public static string defaultFont = "/usr/share/fonts/noto/NotoSans-Regular.ttf";

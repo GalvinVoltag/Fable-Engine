@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using System.Text.Json;
+using FableEngine.Debugging;
 using FableEngine.Rendering;
 using FableEngine.Math;
 using FableEngine.Rendering;
@@ -13,7 +13,7 @@ namespace FableEngine.Core;
 /// Scene is a class with its own Transform and draw calls. Other objects with transforms may be added as children and managed in here.
 /// Scenes have their own attached shapes, and these shapes behave as masks during rendering.
 /// </summary>
-public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvider
+public class Scene : ManagedRoutineProvider, ITransformProvider
 {
     // private static HashSet<Scene> AllScenes = [];
     private Transform sceneTransform;
@@ -60,7 +60,11 @@ public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvide
     /// </summary>
     public Vector2 size {
         get => new Vector2(width, height);
-        set { width = value.x; height = value.y; }
+        set { width = value.x; height = value.y;
+            
+            
+            
+        }
     }
 
     /// <summary>
@@ -69,7 +73,16 @@ public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvide
     public Transform transform
     {
         get => sceneTransform;
-        set => sceneTransform = value;
+        set {
+            sceneTransform = value;
+            GameWindow? window = GameWindow.GetWindowOf(transform);
+            if (window != null)
+                mask = new Mask(shapeRenderer.Draw,
+                    () => { 
+                        return shapeRenderer.shape.PointIntersection(transform.worldToLocal * window.input.GetMousePos());
+                    }
+                );
+        }
     }
 
     public Scene(string name = "Scene")
@@ -79,7 +92,20 @@ public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvide
         this.name = name;
         rect = AddRoutine<Rect>();
         (shapeRenderer = AddRoutine<ShapeRenderer>()).shape = rectangle;
-        mask = new Mask(shapeRenderer.Draw);
+        GameWindow? window = GameWindow.GetWindowOf(transform);
+        
+        if (window == null)
+            mask = new Mask(shapeRenderer.Draw);
+        else
+        {
+            mask = new Mask(shapeRenderer.Draw,
+                () =>
+                {
+                    // FableEngine.Debugging.Debug.Log("it ran");
+                    return shapeRenderer.shape.PointIntersection(transform.worldToLocal * window.input.GetMousePos());
+                }
+            );
+        }
     }
 
     public new void Destroy()
@@ -102,10 +128,10 @@ public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvide
         Transform parent = transform;
         while (parent.parent != null)
         {
+            if (parent.attachedObject is Scene scene)
+                return scene;
             parent = parent.parent;
         }
-        if (parent.attachedObject is Scene)
-            return (Scene)parent.attachedObject;
         
         return null;
     }
@@ -143,19 +169,33 @@ public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvide
         string json = JsonSerializer.Serialize(this, options);
         File.WriteAllText(path, json);
     }
-    
+
+    public override bool Input(Input input)
+    {
+        Vector2 relativeMouse = transform.worldToLocal * input.GetMousePos();
+        if (!shapeRenderer.shape.PointIntersection(relativeMouse))
+        // if (mask.inputMask != null && !mask.inputMask())
+        {
+            return false;
+        }
+        return base.Input(input);
+    }
+
     /// <summary>
     /// Draw this Scene
     /// </summary>
     public override void Draw()
     {
         if (!active) return;
-
+        
+        shapeRenderer.shape = rectangle;
+        shapeRenderer.color = backgroundColor;
+        
         if (transform.parent == null)
         {
-            float scaleX = 1f / (Renderer.current.window.Size.X / 2f);
-            float scaleY = 1f / (Renderer.current.window.Size.Y / 2f);
-            
+
+            float scaleX = 1f / (size.x / 2f);
+            float scaleY = 1f / (size.y / 2f);
             transform.OverrideMatrix(new([
                 scaleX, 0, 0, 0,
                 0, scaleY, 0, 0,
@@ -163,8 +203,6 @@ public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvide
                 -1, -1, 0, 1
             ]));
         }
-        shapeRenderer.shape = rectangle;
-        shapeRenderer.color = backgroundColor;
         
         mask.Set();
         
@@ -184,12 +222,12 @@ public class Scene : ManagedRoutineProvider, ITransformProvider, IContextProvide
         mask.UnSet();
     }
 
-    public ContextMenu GenerateContextMenu()
-    {
-        return new ContextMenu(new Dictionary<string, Action>()
-        {
-            { "New Thing 2D", () => { new Thing(transform); } },
-            { "New Thing 3D", () => { new Thing(transform); } },
-        });
-    }
+    // public ContextMenu GenerateContextMenu()
+    // {
+    //     return new ContextMenu(new Dictionary<string, Action>()
+    //     {
+    //         { "New Thing 2D", () => { new Thing(transform); } },
+    //         { "New Thing 3D", () => { new Thing(transform); } },
+    //     });
+    // }
 }

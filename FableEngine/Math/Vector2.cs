@@ -96,6 +96,8 @@ public record struct Vector2 : IVector, IParsable<Vector2>
     public IVector Divide(float b) => this / b;
     public IVector Divide(IVector b) => this / b;
 
+    public static implicit operator Vector2D<int>(Vector2 v) => new Vector2D<int>((int)v.x, (int)v.y);
+    
     public static Vector2 operator +(Vector2 a, float b) => new(a.x + b, a.y + b);
     public static Vector2 operator +(Vector2 a, Vector2 b) => new(a.x + b.x, a.y + b.y);
     public static Vector2 operator -(Vector2 a, Vector2 b) => new(a.x - b.x, a.y - b.y);

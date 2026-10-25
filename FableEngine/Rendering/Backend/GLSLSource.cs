@@ -1,11 +1,13 @@
 namespace FableEngine.Rendering.Backend;
 
-public record struct GLSLSource(string fragmentSource, string vertexSource) : IShaderSource
+public readonly struct GLSLSource(string vertex, string fragment) : IShaderSource
 {
-    public string fragmentSource = fragmentSource;
-    public string vertexSource = vertexSource;
+    public readonly string vertexSource = vertex;
+    public readonly string fragmentSource = fragment;
     public override string ToString()
     {
-        return fragmentSource + "\n" + vertexSource;
+        return vertexSource + "\n" + fragmentSource;
     }
 }
+
+public readonly struct NullShaderSource : IShaderSource;

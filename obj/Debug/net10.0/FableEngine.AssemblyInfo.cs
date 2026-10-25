@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("FableEngine")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+33f4aa427144ed1f56bff6c05f7e10d3cc077480")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1f4848adc186a3571c793cb024f3bda4c852f1cb")]
 [assembly: System.Reflection.AssemblyProductAttribute("FableEngine")]
 [assembly: System.Reflection.AssemblyTitleAttribute("FableEngine")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

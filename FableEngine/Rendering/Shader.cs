@@ -13,8 +13,8 @@ public class Shader : INameable, IParsable<Shader>
     /// <summary>
     /// current shader that is being used to draw
     /// </summary>
-    public static Shader current { get; private set; }
-    private static IRenderBackend currentBackend { get; set; }
+    public static Shader? current { get; private set; }
+    private static IRenderBackend currentBackend { get => field ?? Renderer.current.backend; set; }
     private static Dictionary<string, Shader> all = [];
     public static Matrix4x4 matrix = new Matrix4x4();
 
@@ -30,8 +30,7 @@ public class Shader : INameable, IParsable<Shader>
     private readonly List<IRenderBackend> hosts = [];
     private readonly ShaderHandle handle = new();
     private PipelineHandle pipeline = new PipelineHandle();
-    private string vertexShaderSource = "";
-    private string fragmentShaderSource = "";
+    private IShaderSource source = new NullShaderSource();
     private bool compiled = false;
     
     public string name { get; set; }
@@ -49,7 +48,7 @@ public class Shader : INameable, IParsable<Shader>
         this.name = newName;
         all[newName] = this;
     }
-    public Shader(string name, string vertex, string fragment)
+    public Shader(string name, IShaderSource shaderSource)
     {
         // gl = shaderGL;
         string newName = name;
@@ -59,8 +58,7 @@ public class Shader : INameable, IParsable<Shader>
             i++;
         }
         this.name = newName;
-        vertexShaderSource = vertex;
-        fragmentShaderSource = fragment;
+        this.source = shaderSource;
         all[newName] = this;
     }
     ~Shader() { 
@@ -96,9 +94,9 @@ public class Shader : INameable, IParsable<Shader>
     public bool Compile(IRenderBackend? backend = null)
     {
         if (backend == null) return false;
-        if (vertexShaderSource == "" ||  fragmentShaderSource == "")
+        if (source is NullShaderSource)
         {
-            Debug.Log("compilation failed due to empty shader source!", DebugLogLevel.Error);
+            Debug.Log("shader did not compile due to empty source!", DebugLogLevel.Warning);
             return false;
         }
         if (compiled) // delete shader before recompiling it
@@ -108,7 +106,7 @@ public class Shader : INameable, IParsable<Shader>
 
         if (!hosts.Contains(backend))
             hosts.Add(backend);
-        compiled = backend.CreateShader(handle, new GLSLSource(fragmentShaderSource, vertexShaderSource));
+        compiled = backend.CreateShader(handle, source);
         Debug.Log(DebugLogLevel.Success, ConsoleColor.Green, "Shader program ", ConsoleColor.Yellow, name, ConsoleColor.Green," compiled successfully.");
         return compiled;
     }
@@ -128,26 +126,10 @@ public class Shader : INameable, IParsable<Shader>
         hosts.Clear();
         all.Remove(name);
     }
-
-    public string GetVertexSource() { return vertexShaderSource; }
-    public string GetFragmentSource() { return fragmentShaderSource; }
     
-    public void SetVertexSource(string source)
+    public void SetSource(IShaderSource shaderSource)
     {
-        vertexShaderSource = source;
-        compiled = false;
-        if (autoCompile) Compile();
-    }
-    public void SetFragmentSource(string source)
-    {
-        fragmentShaderSource = source;
-        compiled = false;
-        if (autoCompile) Compile();
-    }
-    public void SetSource(string vertex, string fragment)
-    {
-        vertexShaderSource = vertex;
-        fragmentShaderSource = fragment;
+        this.source = shaderSource;
         compiled = false;
         if (autoCompile) Compile();
     }
@@ -155,7 +137,6 @@ public class Shader : INameable, IParsable<Shader>
     public void SetMatrix4(string variableName, Matrix4x4 matrix4, IRenderBackend backend)
     {
         if (variableName == "transform") matrix = matrix4;
-        // int loc = backend.GetUniformLocation(GetShaderProgram(backend), variableName);
         backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes(matrix4.data));
     }
     
@@ -167,8 +148,6 @@ public class Shader : INameable, IParsable<Shader>
     public void SetVector4(string variableName, float x, float y, float z, float w, IRenderBackend backend)
     {
         backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes([x, y, z, w]));
-        // int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
-        // gl.Uniform4(loc, x, y, z, w);
     }
     public void SetVector4(string variableName, float x, float y, float z, float w)
     {
@@ -178,8 +157,6 @@ public class Shader : INameable, IParsable<Shader>
     public void SetColor(string variableName, Color color, IRenderBackend backend)
     {
         backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes([color.r, color.g, color.b, color.a]));
-        // int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
-        // gl.Uniform4(loc, color.r, color.g, color.b, color.a);
     }
     public void SetColor(string variableName, Color color)
     {
@@ -189,8 +166,6 @@ public class Shader : INameable, IParsable<Shader>
     public void SetFloat(string variableName, float f, IRenderBackend backend)
     {
         backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes([f]));
-        // int loc = gl.GetUniformLocation(GetShaderProgram(gl), variableName);
-        // gl.Uniform1(loc, f);
     }
     public void SetFloat(string variableName, float f)
     {
@@ -199,16 +174,8 @@ public class Shader : INameable, IParsable<Shader>
 
     public void SetTexture(string variableName, Texture texture, IRenderBackend backend, int slot = 0)
     {
-        // OpenGL ogl = (backend as OpenGL ??
-        //               throw new Exception("setting textures on backends other than OpenGL are not supported yet."));
-        // GL gl = ogl.gl;
-        // int loc = gl.GetUniformLocation(ogl.GetShaderInfo(handle).id, variableName);
         backend.SetUniformData(pipeline, variableName, MemoryMarshal.AsBytes([slot]));
-        backend.SetTexture(texture.handle, 0);
-        // ogl.UseShader(handle);
-        // gl.Uniform1(loc, 0);
-        // gl.ActiveTexture(unit);
-        // gl.BindTexture(TextureTarget.Texture2D, texture.GetID());
+        backend.SetTexture(texture.handle, slot);
     }
     public void SetTexture(string variableName, Texture texture, int slot = 0)
     {

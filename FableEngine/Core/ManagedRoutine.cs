@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Text.Json.Serialization;
+using FableEngine.Debugging;
 
 namespace FableEngine.Core;
 
@@ -65,7 +67,10 @@ public abstract class ManagedRoutine : IDestroyable, IDisposable, IActivatable
 
     protected ManagedRoutine()
     {
-        // Debug.Log("MR creation");
+        if (!All.ContainsKey(layer)) All.Add(layer, new List<ManagedRoutine>());
+        All[layer].Add(this);
+        
+        // if (GetType().GetMethod(nameof(Wake))?.GetBaseDefinition().DeclaringType != GetType())
         NewBorns.Add(this);
     }
 
@@ -113,13 +118,16 @@ public abstract class ManagedRoutine : IDestroyable, IDisposable, IActivatable
     /// </summary>
     public virtual void Wake()
     {
-        if (!All.ContainsKey(layer)) All.Add(layer, new List<ManagedRoutine>());
-        All[layer].Add(this);
-        FrameRunners.Add(this);
-        InputRunners.Add(this);
-        FixedRunners.Add(this);
-        DrawRunners.Add(this);
-        PostFrameRunners.Add(this);
+        if (GetType().GetMethod(nameof(Frame))?.GetBaseDefinition().DeclaringType != GetType())
+            FrameRunners.Add(this);
+        if (GetType().GetMethod(nameof(Input))?.GetBaseDefinition().DeclaringType != GetType())
+            InputRunners.Add(this);
+        if (GetType().GetMethod(nameof(Fixed))?.GetBaseDefinition().DeclaringType != GetType())
+            FixedRunners.Add(this);
+        if (GetType().GetMethod(nameof(Draw))?.GetBaseDefinition().DeclaringType != GetType())
+            DrawRunners.Add(this);
+        if (GetType().GetMethod(nameof(PostFrame))?.GetBaseDefinition().DeclaringType != GetType())
+            PostFrameRunners.Add(this);
     }
     
     /// <summary>
@@ -139,9 +147,9 @@ public abstract class ManagedRoutine : IDestroyable, IDisposable, IActivatable
     /// <summary>
     /// Called while window inputs are being processed by FableEngine. This method is called per window, multiple times per object if it appears on multiple windows at once.
     /// </summary>
-    public virtual void Input(Input input)
+    public virtual bool Input(Input input)
     {
-        
+        return true;
     }
     /// <summary>
     /// Called while the frame is being drawn by FableEngine. This method is called per window, multiple times per object if it renders on multiple windows at once

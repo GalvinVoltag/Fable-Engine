@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using FableEngine.Core;
+using FableEngine.Debugging;
 using FableEngine.Math;
 using FableEngine.Rendering.Backend;
 using FableEngine.Transforms;
@@ -20,23 +21,21 @@ public class ShapeRenderer : RenderRoutine
 
     public ShapeRenderer() : base(GameWindow.defaultShader)
     {
-        shape = Polygon.GetPrimitiveShape(Polygon.PrimitiveShape.square);
+        // shape = Polygon.GetPrimitiveShape(Polygon.PrimitiveShape.square);
+        shape = new Rectangle(-5, -5, 5, 5);
     }
 
     // public static PipelineHandle staticPipeline = new();
     public static void DrawPolygon(Polygon poly)
     {
-        // GL gl =  Renderer.current.gl;
-        
         Renderer.current.backend.SetBuffer(poly.handle);
         Renderer.current.backend.Draw(poly.data.Length / Vertex.Size);
-        // gl.BindVertexArray(poly.GetID());
-        // gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)(poly.GetRawData().Length/6));
     }
 
     public static void DrawRectangle(Shader? shader = null, Rectangle rect = new Rectangle(), Color? color = null, Matrix4x4 pMatrix = default)
     {
         shader ??= Shader.current;
+        if (shader is null) return;
         shader.Use();
         shader.SetMatrix4("transform", pMatrix * Transform2D.TransformToMatrix4( rect.position, 0, rect.size));
         shader.SetColor("color", color??Color.white);
