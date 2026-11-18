@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Numerics;
 using System.Reflection;
+using System.Runtime.InteropServices.ComTypes;
 using System.Security.AccessControl;
 using FableEngine.Math;
 using FableEngine.Rendering;
@@ -963,259 +964,26 @@ public interface IMemberEditor
     public static abstract Thing Generate(PropertyBinding<object?> binding, MemberInfo memberInfo, object? target);
 }
 
-public class TransformEditor : IMemberEditor
-{
-    public static int GetPriority(Type type, MemberInfo member)
-    {
-        return type.IsAssignableTo(typeof(Transform)) ? 10 : 0;
-    }
-
-    public static Thing Generate(PropertyBinding<object?> binding, MemberInfo memberInfo, object? target)
-    {
-        return SimpleButton.CreateTemplate(null, binding.name + " (Nu Uh)", new Vector2(18));
-    }
-}
-
-public class VectorEditor : IMemberEditor
-{
-    public static int GetPriority(Type type, MemberInfo member)
-    {
-        return type.IsAssignableTo(typeof(IVector)) ? 20 : 0;
-    }
-
-    public static Thing Generate(PropertyBinding<object?> binding, MemberInfo memberInfo, object? target)
-    {
-        IVector vector = (binding.value as IVector)!;
-        
-        Thing thing = new Thing();
-        ListLayout ll = thing.AddRoutine<ListLayout>();
-        ll.direction = ListLayout.Direction.LeftToRight;
-        ll.stretch = true;
-        ll.self.insidePadding = new Rectangle(0);
-        
-        SimpleButton.CreateTemplate(thing.transform, binding.name, new Vector2(18), true);
-
-        for (int i = 0; i < vector.Dimensions; i++)
-        {
-            int index = i;
-            Thing btn = DefultMemberEditor.Generate(
-                new PropertyBinding<object?>( 
-                    ()=> ((IVector)binding.value!)[index],
-                    (f) => { vector[index] = (float)f; binding.value = vector; }, 
-                    vector[i].ToString() )
-                , memberInfo, target);
-            btn.GetRoutineFromChildren<SimpleButton>()?.self.minSize = new Vector2(18);
-            btn.transform.parent = thing.transform;
-            // Thing btn = SimpleButton.CreateTemplate(thing.transform, vector[i].ToString(), new Vector2(18), true);
-            // btn.GetOrAddRoutine<SimpleButton>().self.minSize = new Vector2(18);
-            // btn.GetRoutineFromChildren<TextRenderer>()?.provider.AddRoutine<WheelMotion>().limitRect = true;
-        }
-        
-        return thing;
-    }
-}
-
-public class BooleanEditor : IMemberEditor
-{
-    public static int GetPriority(Type type, MemberInfo member)
-    {
-        return type == typeof(bool) ? 1 : 0;
-    }
-
-    public static Thing Generate(PropertyBinding<object?> binding, MemberInfo memberInfo, object? target)
-    {
-        Thing thing = SimpleButton.CreateTemplate(null, binding.name, new Vector2(18));
-        SimpleButton button = thing.GetRoutine<SimpleButton>()!;
-        button.neutralColor = (bool)binding.value!?Color.green:Color.red;
-        button.hoveredColor = button.neutralColor + new Color(0.2f, 0.2f, 0.2f);
-        button.clickedColor = button.neutralColor - new Color(0.2f, 0.2f, 0.2f, 0);
-        button.onClick = () =>
-        {
-            binding.value = !(bool)binding.value!;
-            button.neutralColor = (bool)binding.value!?Color.green:Color.red;
-            button.hoveredColor = button.neutralColor + new Color(0.2f, 0.2f, 0.2f);
-            button.clickedColor = button.neutralColor - new Color(0.2f, 0.2f, 0.2f, 0);
-        };
-        
-        return thing;
-    }
-}
-
-public class SliderEditor : IMemberEditor
-{
-    public static int GetPriority(Type type, MemberInfo member)
-    {
-        var attributes = member.GetCustomAttributes(false);
-        if (attributes.Any(o => o is Slidable))
-            return 5;
-        return 0;
-    }
-    
-    public static Thing Generate(PropertyBinding<object?> binding, MemberInfo memberInfo, object? target)
-    {
-        Slidable? s = memberInfo.GetCustomAttributes(false).First(o => o is Slidable) as Slidable;
-        if (s  == null) throw new NullReferenceException();
-        
-        float min = s.min;
-        float max = s.max;
-        // SimpleButton b = SimpleButton.CreateTemplate(layout.transform, name, new Vector2(16))
-        //     .GetOrAddRoutine<SimpleButton>();
-
-        Type numberType = memberInfo.GetFieldOrPropertyType() ?? typeof(float);
-        Type sliderType = typeof(Slider<>).MakeGenericType(numberType);
-
-        MethodInfo? CreateTemplate = sliderType.GetMethod(nameof(Slider<>.CreateTemplate),
-            BindingFlags.Static | BindingFlags.Public);
-        if (CreateTemplate == null) throw new NullReferenceException();
-
-        object? thing = CreateTemplate.Invoke(null, [
-            null,
-            Convert.ChangeType(min, numberType),
-            Convert.ChangeType(max, numberType)
-        ]);
-        object? slider = (thing as Thing)?.GetRoutineFromChildren(sliderType);
-
-        PropertyBinding<Single> pbs = new PropertyBinding<Single>();
-        Type bindingType = typeof(PropertyBinding<>).MakeGenericType(numberType);
-        
-        sliderType.GetField(nameof(Slider<>.target))?.SetValue(slider,
-            Activator.CreateInstance(bindingType,
-                binding.getter,
-                binding.setter,
-                binding.name));
-
-
-        if (thing != null) return (Thing)thing;
-        throw new NullReferenceException("slider template returned null");
-    }
-}
-public class DefultMemberEditor : IMemberEditor
-{
-    public static int GetPriority(Type type, MemberInfo member)
-    {
-        return 1;
-    }
-    
-    public static Thing Generate(PropertyBinding<object?> binding, MemberInfo memberInfo, object? target)
-    {
-        string name = binding.name;
-        if (memberInfo.DeclaringType != target?.GetType()) name = "+" + name;
-        
-        SimpleButton b = SimpleButton.CreateTemplate(null, name, new Vector2(16), true).GetOrAddRoutine<SimpleButton>();
-        TextRenderer tr = b.thing.GetRoutineFromChildren<TextRenderer>()!;
-        b.onClick = () =>
-        {
-            tr.text = binding.value?.ToString() ?? "???";
-            InspectorPortal.targetEditingText = tr;
-            InspectorPortal.binding = new PropertyBinding<object?>(
-                    binding.getter,
-                    binding.setter,
-                    memberInfo.Name
-                );
-            // Debug.Log(memberInfo.HasSetter() ?? "no");
-        };
-        if (!memberInfo.HasSetter()) b.neutralColor = Color.gray;
-
-        return b.thing;
-    }
-}
-
-public static class FieldOrProperty
-{
-    public static bool HasGetter(this MemberInfo member)
-    {
-        return (member is FieldInfo) || (member as PropertyInfo)?.GetMethod != null;
-    }
-    public static bool HasSetter(this MemberInfo member)
-    {
-        return (member is FieldInfo) || (member as PropertyInfo)?.SetMethod != null;
-    }
-    public static object? GetValue(this MemberInfo member, object? target)
-    {
-        if (member is FieldInfo F) return F.GetValue(target);
-        if (member is PropertyInfo P) return P.GetValue(target);
-        return null;
-    }
-    public static T GetValue<T>(this MemberInfo member, object? target)
-    {
-        if (member is FieldInfo F) return (T)F.GetValue(target);
-        if (member is PropertyInfo P) return (T)P.GetValue(target);
-        throw new Exception("member is neither field or property!");
-    }
-    public static void SetValue(this MemberInfo member, object? target, object? value)
-    {
-        (member as PropertyInfo)?.SetValue(target, value);
-        (member as FieldInfo)?.SetValue(target, value);
-    }
-    
-    public static Type? GetFieldOrPropertyType(this MemberInfo member) => 
-        ((member is FieldInfo) ? 
-            (member as FieldInfo)?.FieldType : 
-            (member as PropertyInfo)?.PropertyType) ?? 
-        null;
-}
-
-public static class TypeExtensions
-{
-    static Type[] AllConcreteTypes => // get all types in all loaded assemblies
-        field ??= AppDomain.CurrentDomain.GetAssemblies()
-            .SelectMany(a => { try { return a.GetTypes(); } catch { return Type.EmptyTypes; } })
-            .Where(t => !t.IsAbstract && !t.ContainsGenericParameters)
-            .Distinct()
-            .ToArray();
-    
-    public static Type[] GetPossibleGenericTypes(Type T)
-    {
-        if (!T.IsGenericTypeDefinition) return [T];
-        
-        List<Type> final = new List<Type>();
-        Type GP = T.GetGenericArguments()[0];
-            
-        if (T.GetGenericArguments().Length != 1 && Debug.Log("skipped " + T + " because it has too many generic types", DebugLogLevel.Error)) return [];
-
-        Type[] constraints = GP.GetGenericParameterConstraints();
-            
-        if (constraints.Length == 0 && Debug.Log("skipped " + T + " because it is generic with no constraints", DebugLogLevel.Error)) return [];
-
-        foreach ( Type GT in AllConcreteTypes )
-        {
-            // if (constraints.Any(c => !c.IsAssignableFrom(GT))) continue;
-
-            Type GPT;
-            try {
-                GPT = T.MakeGenericType(GT);
-            } catch (Exception e) { continue; }
-                
-            final.Add(GPT);
-        }
-        return final.ToArray();
-
-    }
-    
-    public static string GetPrettyName(Type t)
-    {
-        if (!t.IsGenericType) return t.Name;
-
-        string name = t.Name[..t.Name.IndexOf('`')];          // "Slider"
-        IEnumerable<string> args = t.GetGenericArguments().Select(GetPrettyName); // recurse for nested generics
-        return $"{name}<{string.Join(", ", args)}>";
-    }
-}
-
 public class BasePortal : Scene
 {
     int lastParentVersion = -1;
     private GameWindow? gameWindow = null;
+
+    public BasePortal()
+    {
+    }
     
     public override void Frame()
     {
         if (transform.parentVersion != lastParentVersion)
         {
+            Debug.Log("parent versions: ", (transform.parentVersion != lastParentVersion), "   ", transform.parentVersion, " - ", lastParentVersion);
+            // Debug.Log("parent changed");
             if (transform.parent == null)
             {
                 if (gameWindow == null)
                 {
-                    gameWindow = new GameWindow(WindowOptions.Default with { Size = new Vector2D<int>(400, 400) });
+                    gameWindow = new GameWindow(WindowOptions.Default with { Size = new Vector2D<int>((int)size.x, (int)size.y) });
                     gameWindow.scene = this;
                 }
             }
@@ -1225,266 +993,6 @@ public class BasePortal : Scene
             }
             lastParentVersion = transform.parentVersion;
         }
-    }
-}
-
-public class InspectorPortal : BasePortal
-{
-    private static readonly Type[] AllPropertyEditors =
-        [
-            .. Assembly.GetExecutingAssembly().GetTypes()
-                .Where(type => type.IsAssignableTo(typeof(IMemberEditor)) && type != typeof(IMemberEditor) )
-        ];
-
-    public object? targetObject = null;
-    // private ContextMenu addRoutineMenu = new ContextMenu([]);
-    private Thing ScrollArea;
-    
-
-    public InspectorPortal(Transform? parent = null, string name = "Inspector Portal")
-    {
-        backgroundColor = Color.green;
-        ScrollArea = new Thing(transform, "Scroller");
-        if (ScrollArea.GetRoutine<ContextMenuProvider>() != null) return;
-        
-        ListLayout Ll = ScrollArea.AddRoutine<ListLayout>();
-        Ll.self.rect.size = new Vector2(100, 100);
-        Ll.stretch = false;
-        ScrollArea.AddRoutine<WheelMotion>();
-
-        ScrollArea.AddRoutine<WheelMotion>();
-        ScrollArea.AddRoutine<FitRect>().fitY = false;
-        
-        ContextMenuProvider CMP = ScrollArea.AddRoutine<ContextMenuProvider>();
-        CMP.context = new Context(this, [], [typeof(TransformContextActions), typeof(RoutineProviderContextActions)]);
-    }
-    
-    public static TextRenderer? targetEditingText = null;
-    public static PropertyBinding<object?>? binding = null;
-    public override bool Input(Input input)
-    {
-        if (targetEditingText == null || binding == null) return base.Input(input);
-        
-        targetEditingText.color = Color.blue;
-        targetEditingText.text += input.GetKeyboardInputStream();
-        if (input.GetKey(Key.Backspace) && targetEditingText.text.Length > 0) targetEditingText.text = targetEditingText.text[..^1];
-        
-        if (input.GetKey(Key.Enter)) {
-            targetEditingText.color = Color.black;
-            
-            Type type = binding?.value?.GetType() ?? typeof(int);
-            
-            MethodInfo? parseMethod = type.GetMethod(nameof(float.Parse), BindingFlags.Public | BindingFlags.Static, [typeof(string), typeof(IFormatProvider)]);
-            if (parseMethod != null)
-            {
-                binding?.value = parseMethod.Invoke(null, [targetEditingText.text, null]);
-            }
-            else
-            {
-                if (type == typeof(string))
-                {
-                    binding?.value = targetEditingText.text;
-                }
-                else if (type.IsEnum)
-                {
-                    if (int.TryParse(targetEditingText.text, out var value))
-                    {
-                        binding?.value = value;
-                    }
-                }
-                else Debug.Log(type.Name + " is not parsable", DebugLogLevel.Error);
-            }
-            
-            targetEditingText.text = binding?.value?.ToString() ?? "???";
-            
-            targetEditingText = null;
-            binding = null;
-        }
-
-        return base.Input(input);
-    }
-
-    private int oldRoutineCount = 0;
-    public override void Frame()
-    {
-        base.Frame();
-        switch (targetObject)
-        {
-            case null:
-                return;
-            case IRoutineProvider RP when RP.routines.Length != oldRoutineCount:
-                GenerateInspector(targetObject);
-                oldRoutineCount = RP.routines.Length;
-                break;
-        }
-    }
-
-    public void GenerateInspector(object? target)
-    {
-        // if (child.attachedObject is IDestroyable destroyable) destroyable.Destroy();
-        if (target == null) return;
-        foreach (Transform dest in ScrollArea.transform.children.ToArray())
-            dest.Destroy();
-        
-        targetObject = target;
-
-        if (target is ITransformProvider TP)
-        {
-            SimpleButton.CreateTemplate(ScrollArea.transform, TP.transform.GetType().Name, new Vector2(20));
-            ListLayout transformLayout = new Thing(ScrollArea.transform).GetOrAddRoutine<ListLayout>();
-            GeneratePropertyList(transformLayout, TP.transform);
-        }
-
-        if (target is IRoutineProvider RP)
-        {
-            foreach (Routine R in RP.routines)
-            {
-                SimpleButton.CreateTemplate(ScrollArea.transform, TypeExtensions.GetPrettyName(R.GetType()), new Vector2(20), true);
-                ListLayout layout = new Thing(ScrollArea.transform).GetOrAddRoutine<ListLayout>();
-                GeneratePropertyList(layout, R);
-            }
-        }
-
-        ScrollArea.GetOrAddRoutine<ListLayout>().RecalculateLayout();
-    }
-    public void GeneratePropertyList(ListLayout layout, object R)
-    {
-        foreach (MemberInfo member in R.GetType().GetMembers(BindingFlags.Public | BindingFlags.Instance).Where(m => m is  PropertyInfo or FieldInfo))
-        {
-            object[] attributes = member.GetCustomAttributes(false);
-            Type type = member.GetValue(R)?.GetType() ?? typeof(int);
-
-            if (member.DeclaringType != R.GetType() && !attributes.Any(a => a is ShowDeclared)) continue;
-        
-            Type? editorType = null;
-            int lastPriority = -1;
-            foreach (var T in AllPropertyEditors)
-            {
-                int priority = (int)T.GetMethod(nameof(IMemberEditor.GetPriority))!.Invoke(null, [type, member])!;
-                if (priority <= lastPriority) continue;
-            
-                editorType = T;
-                lastPriority = priority;
-            }
-
-            if (editorType == null) continue;
-        
-            Thing t = (Thing)editorType.GetMethod(nameof(IMemberEditor.Generate))!
-                .Invoke(null, 
-                [new PropertyBinding<object?>( 
-                        () => member.GetValue(R), 
-                        (v) => member.SetValue( R, v), 
-                        member.Name)
-                    , member, R])!;
-            t.transform.parent = layout.transform;
-        
-        }
-    }
-    
-}
-
-public class SceneHierarchyPortal : BasePortal
-{
-    public Transform? targetTree;
-    public InspectorPortal? targetPortal = null;
-    
-    private ListLayout _listLayout => field ??= GetOrAddRoutine<ListLayout>();
-    private List<Thing> items = [];
-    private List<Transform> itemTargets = [];
-    private List<int> oldDepths = [];
-    
-    public void ClearList()
-    {
-        foreach (Thing sb in items) {
-            sb.Destroy();
-        }
-        items.Clear();
-        itemTargets.Clear();
-        oldDepths.Clear();
-    }
-    
-    public void GenerateHierarchy(Transform? target = null, int nesting = 0)
-    {
-        if (target == null)
-        {
-            target = targetTree;
-            if (target == null) return;
-            ClearList();
-        }
-
-        foreach (Transform child in target.children)
-        {
-            // Thing targetBtn = SimpleButton.CreateTemplate(transform, child.attachedObject.name + " (" +
-            //                                             TypeExtensions.GetPrettyName(child.GetType()) + ")", new Vector2(18));
-            Thing targetBtn = SimpleButton.CreateTemplate(transform, child.attachedObject.name + " (" +
-                                                                     (child.depth - targetTree?.depth) + ")", new Vector2(18));
-            targetBtn.GetRoutine<SimpleButton>()?.onClick = () =>
-            {
-                if (targetPortal == null || FableEngine.Input.current.GetKey(Key.ShiftLeft))
-                {
-                    InspectorPortal inspector = new InspectorPortal();
-                    inspector.GenerateInspector(child.attachedObject);
-                }else {
-                    targetPortal?.GenerateInspector(child.attachedObject);
-                }
-            };
-            targetBtn.GetRoutine<Rect>()?.outsidePadding.Left = nesting * 20;
-            targetBtn.AddRoutine<ContextMenuProvider>().context = new Context(child.attachedObject);
-            items.Add(targetBtn);
-            itemTargets.Add(child);
-            oldDepths.Add(child.depth - targetTree?.depth??0);
-            if (child.children.Count > 0) GenerateHierarchy(child, nesting+1);
-        }
-        _listLayout.RecalculateLayout();
-    }
-    
-    public override void Frame()
-    {
-        base.Frame();
-        if (targetTree == null) return;
-        for (int i = 0; i < items.Count; i++)
-        {
-            if (oldDepths[i] == (itemTargets[i].depth - targetTree.depth)) continue;
-            GenerateHierarchy();
-            break;
-        }
-        if (items.Count != targetTree.totalChildren)
-            GenerateHierarchy();
-    }
-}
-
-public class GameScenePortal : BasePortal
-{
-    public Scene gameScene;
-
-    private ContextMenuProvider CMP;
-
-    public GameScenePortal(Scene gameScene, Transform? parent = null)
-    {
-        transform.parent = parent;
-        this.gameScene = gameScene;
-        this.gameScene.transform.parent = transform;
-        this.backgroundColor = Color.yellow;
-        CMP = GetOrAddRoutine<ContextMenuProvider>();
-        CMP.context = new Context(this, [], [typeof(TransformContextActions), typeof(RoutineProviderContextActions)]);
-
-        // rect.onShapeChanged = UpdateShape;
-    }
-
-    public override void Frame()
-    {
-        gameScene?.rectangle = rectangle;
-    }
-
-    // private void UpdateShape(Rectangle newShape)
-    // {
-    //     gameScene?.rectangle = newShape;
-    // }
-
-    public override void Dispose()
-    {
-        // rect.onShapeChanged -= UpdateShape;
-        base.Dispose();
     }
 }
 
@@ -1532,12 +1040,45 @@ public class Positioner : Routine
 
 }
 
+public class EditorWindow : GameWindow
+{
+    private BinaryTree rootTree;
+
+    private void Initialize()
+    {
+        
+    }
+    
+    public EditorWindow(WindowOptions windowOptions) : base(windowOptions)
+    {
+        rootTree = new BinaryTree(scene.transform);
+    }
+
+    public EditorWindow(string title, Vector2? size = null, Vector2 position = default, bool transparent = false) : base(title, size, position, transparent)
+    {
+        rootTree = new BinaryTree(scene.transform);
+    }
+}
+
+public struct Tracker<T>(T target)
+{
+    private T oldValue = target;
+    public bool Value(T target)
+    {
+        bool returner = oldValue != null && oldValue.Equals(target);
+        if (!returner) oldValue = target;
+        return oldValue != null && oldValue.Equals(target);
+    }
+}
+
 // todo: not sure if this thing is actually called a Binary Tree
-public class BinaryTree : Routine
+public class BinaryTree : Thing
 {
     public float percentage = 0.5f;
-    public float borderThickness =5;
+    public float borderThickness = 5;
     public bool reverse = false;
+    public bool empty = false;
+    // public bool missing => (aSide == null || bSide == null);
 
     public int axis
     {
@@ -1549,51 +1090,149 @@ public class BinaryTree : Routine
             rescaler.cursorShape = value == 1 ? StandardCursor.VResize : StandardCursor.HResize;
         }
     } = VectorAxis.X;
-    public Rect? aSide;
-    public Rect? bSide;
+    public BinaryTree? aSide;
+    public BinaryTree? bSide;
     public bool ignoreMinSize = false;
     
-    private readonly UIArea rescaler;
+    private UIArea rescaler;
     private bool rescaling = false;
     private readonly Rect self;
-
-    public BinaryTree()
+    
+    public BinaryTree(Transform? parent)
     {
-        rescaler = new UIArea(new Rectangle(), transform);
-        rescaler.cursorShape = StandardCursor.HResize;
-        self = provider.GetOrAddRoutine<Rect>();
+        transform.parent = parent;
+        rescaler = new UIArea(new Rectangle(0), transform, true);
+        self = GetOrAddRoutine<Rect>();
+    }
+    private BinaryTree(BinaryTree parent)
+    {
+        transform.parent = parent.transform;
+        rescaler = new UIArea(new Rectangle(0), transform, true);
+        self = GetOrAddRoutine<Rect>();
     }
 
+    public (BinaryTree A, BinaryTree B) Split(bool passAllContentToB)
+    {
+        (BinaryTree A, BinaryTree B) = Split();
+
+        foreach (Transform child in transform.children)
+        {
+            if (child != A.transform && child != B.transform)
+                child.parent = passAllContentToB ? B.transform : A.transform;
+        }
+
+        return (A, B);
+    }
+    
+    public (BinaryTree A, BinaryTree B) Split(ITransformProvider? aContent = null, ITransformProvider? bContent = null)
+    {
+        if (aContent == this || bContent == this)
+            throw new NotSupportedException("None of the Binary Tree's newly split content can be itself!");
+        
+        BinaryTree A = new BinaryTree(this);
+        aContent?.transform.parent = A.transform;
+        
+        BinaryTree B = new BinaryTree(this);
+        bContent?.transform.parent = B.transform;
+        
+        int index = transform.children.IndexOf(A.transform);
+        if (index != 0)
+            (transform.children[0], transform.children[index]) = (transform.children[index], transform.children[0]);
+        index = transform.children.IndexOf(B.transform);
+        if (index != 1)
+            (transform.children[1], transform.children[index]) = (transform.children[index], transform.children[1]);
+
+        aSide = A;
+        bSide = B;
+        
+        return (A, B);
+    }
+
+    
+    int oldParent = -1;
     public override void Frame()
     {
         base.Frame();
         Vector2 origin = self.origin;
-        self.minSize.x = (aSide == null ? 0 : aSide.minSize.x) + (bSide == null ? 0 : bSide.minSize.x);
-        self.minSize.y = (aSide == null ? 0 : aSide.minSize.y) + (bSide == null ? 0 : bSide.minSize.y);
-        if (aSide != null)
+
+        if (parent?.attachedObject is IRoutineProvider PRP and not BinaryTree)
         {
-            IVector aSidePosition = origin;
-            aSidePosition[axis] += (percentage / 2 - 0.5f) * self.rect.size[axis] - borderThickness/4;
-            aSide.transform.Position = aSidePosition;
-            IVector aSideSize = self.rect.size;
-            aSideSize[axis] *= percentage;
-            aSideSize[axis] -= borderThickness/2;
-            aSide.rect.Rescale((Vector2)aSideSize, true);
+            Rect? PR = PRP.GetRoutine<Rect>();
+
+            if (PR != null)
+                self.rect = PR.rect;
         }
-        if (bSide != null)
+        
+        foreach (Transform child in transform.children)
         {
-            IVector bSidePosition = origin;
-            bSidePosition[axis] += (percentage / 2) * self.rect.size[axis] + borderThickness/4;
-            bSide.transform.Position = bSidePosition;
-            IVector bSideSize = self.rect.size;
-            bSideSize[axis] *= 1 - percentage;
-            bSideSize[axis] -= borderThickness/2;
-            bSide.rect.Rescale((Vector2)bSideSize, true);
+            if (child == aSide?.transform || child == bSide?.transform)
+                continue;
+            
+            if (child.attachedObject is not IRoutineProvider RP)
+                continue;
+            
+            Rect? R = RP.GetRoutine<Rect>();
+            
+            if (R == null) continue;
+
+            R.rect = self.rect;
         }
+
+        if (aSide?.transform.children.Count == 0)
+        {
+            foreach (Transform child in aSide.transform.children)
+                child.parent = transform;
+            aSide.Destroy();
+            aSide = null;
+        }
+        if (bSide?.transform.children.Count == 0)
+        {
+            foreach (Transform child in bSide.transform.children)
+                child.parent = transform;
+            bSide.Destroy();
+            bSide = null;
+        }
+        
+        if (aSide == null && bSide == null)
+            return;
+        
+        if (aSide == null || bSide == null)
+        {
+            BinaryTree side = (aSide ?? bSide)!;
+
+            while (side.transform.children.Count > 0)
+                side.transform.GetChild(0).parent = transform;
+            
+            side.Destroy();
+            return;
+        }
+        
+        int index = transform.children.IndexOf(aSide.transform);
+        if (index != 0)
+            (transform.children[0], transform.children[index]) = (transform.children[index], transform.children[0]);
+        index = transform.children.IndexOf(bSide.transform);
+        if (index != 1)
+            (transform.children[1], transform.children[index]) = (transform.children[index], transform.children[1]);
+        
+        IVector aSidePosition = origin;
+        aSidePosition[axis] += (percentage / 2 - 0.5f) * self.rect.size[axis] - borderThickness/4;
+        aSide.transform.Position = aSidePosition;
+        IVector aSideSize = self.rect.size;
+        aSideSize[axis] *= percentage;
+        aSideSize[axis] -= borderThickness/2;
+        aSide.self.rect.Rescale((Vector2)aSideSize, true);
+        
+        IVector bSidePosition = origin;
+        bSidePosition[axis] += (percentage / 2) * self.rect.size[axis] + borderThickness/4;
+        bSide.transform.Position = bSidePosition;
+        IVector bSideSize = self.rect.size;
+        bSideSize[axis] *= 1 - percentage;
+        bSideSize[axis] -= borderThickness/2;
+        bSide.self.rect.Rescale((Vector2)bSideSize, true);
         
     }
 
-    public override void Input(Input input)
+    public override bool Input(Input input)
     {
         rescaler.UpdateState();
         if (axis == 1)
@@ -1611,16 +1250,17 @@ public class BinaryTree : Routine
             if (axis == 1)
                 percentage = Math.Clamp(
                     (relativeMouse.y - self.Bottom) / self.height,
-                    (aSide != null && !ignoreMinSize)?aSide.minSize.y/self.height:0,
-                    (bSide != null && !ignoreMinSize)? MathF.Max(1 - bSide.minSize.y / self.height, bSide.minSize.y/self.height):1);
+                    (aSide != null && !ignoreMinSize)?aSide.self.minSize.y/self.height:0,
+                    (bSide != null && !ignoreMinSize)? MathF.Max(1 - bSide.self.minSize.y / self.height, bSide.self.minSize.y/self.height):1);
             else
                 percentage = Math.Clamp(
                     (relativeMouse.x - self.Left) / self.width,
-                    (aSide != null && !ignoreMinSize)?aSide.minSize.x/self.width:0,
-                    (bSide != null && !ignoreMinSize)? MathF.Max(1 - bSide.minSize.x / self.width, bSide.minSize.x/self.width):1);
+                    (aSide != null && !ignoreMinSize)?aSide.self.minSize.x/self.width:0,
+                    (bSide != null && !ignoreMinSize)? MathF.Max(1 - bSide.self.minSize.x / self.width, bSide.self.minSize.x/self.width):1);
         }
 
         if (!input.GetMouseButton(0)) rescaling = false;
+        return base.Input(input);
     }
 }
 
@@ -1680,7 +1320,7 @@ public class ContextWindow : IDestroyable, IDisposable
         window.parent = parent;
 
         layout = scene.AddRoutine<ListLayout>();
-        layout.self.insidePadding = new Rectangle(2);
+        layout.self.insidePadding = new Rectangle(0);
         layout.direction = ListLayout.Direction.TopToBottom;
         
         window.RegisterWindowMethod(WindowMethodPosition.BeforeRender, UpdateHeight);
@@ -1716,137 +1356,6 @@ public class ContextWindow : IDestroyable, IDisposable
     }
     public void Dispose()
     {
-    }
-}
-
-public class GameSceneContextActions : IContextAction
-{
-    public bool ValidateAndGenerate(Context context, ContextWindow contextWindow, out ITransformProvider output)
-    {
-        output = null!;
-        if (context.target is not GameScenePortal S) return false;
-        
-        Thing options = new Thing(contextWindow.scene.transform, "Game Scene Options", typeof(Transform2D));
-        SimpleButton.CreateTemplate(options.transform, "New 2D Thing", new Vector2(16), false,
-            () =>
-            {
-                GameWindow? win = GameWindow.GetWindowOf(S.transform);
-                if (win == null) return;
-                Thing t = new Thing(S.gameScene.transform);
-                t.AddRoutine<ShapeRenderer>().shape = new Rectangle(-20, 40);
-                t.transform.Cast<T2D>().position = S.gameScene.transform.worldToLocal * GameWindow.GetWindowOf(S.transform)?.input.GetMousePos()??Vector2.Zero;
-                contextWindow.Destroy();
-            }).GetOrAddRoutine<SimpleButton>().self.outsidePadding = new Rectangle(1);
-        SimpleButton.CreateTemplate(options.transform, "New 3D Thing", new Vector2(16), false,
-            () =>
-            {
-                GameWindow? win = GameWindow.GetWindowOf(S.transform);
-                if (win == null) return;
-                Thing t = new Thing(S.gameScene.transform);
-                t.AddRoutine<ShapeRenderer>().shape = new Rectangle(-20, 40);
-                t.transform.Cast<T2D>().position = S.gameScene.transform.worldToLocal * GameWindow.GetWindowOf(S.transform)?.input.GetMousePos()??Vector2.Zero;
-                contextWindow.Destroy();
-            }).GetOrAddRoutine<SimpleButton>().self.outsidePadding = new Rectangle(0);
-        options.AddRoutine<ListLayout>().self.insidePadding = new Rectangle(1);
-        options.GetRoutine<ListLayout>()?.self.outsidePadding = new Rectangle(0);
-        output = options;
-        return true;
-    }
-}
-
-public class TransformContextActions : IContextAction
-{
-    public bool ValidateAndGenerate(Context context, ContextWindow contextWindow, out ITransformProvider output)
-    {
-        output = null!;
-        if (context.target is not ITransformProvider T) return false;
-        
-        Debug.Log("transform context actions triggered");
-        Thing options = new Thing(contextWindow.scene.transform, "Thing Options", typeof(Transform2D));
-        options.AddRoutine<ListLayout>().self.insidePadding = new Rectangle(1);
-        options.GetRoutine<ListLayout>()?.self.outsidePadding = new Rectangle(0);
-        SimpleButton.CreateTemplate(options.transform, "New Child", new Vector2(16), false,
-            () =>
-            {
-                Thing child = new Thing(T.transform, "Thing (2D)");
-                contextWindow.Destroy();
-            }).GetOrAddRoutine<SimpleButton>().self.outsidePadding = new Rectangle(1);
-        SimpleButton.CreateTemplate(options.transform, "Unparent", new Vector2(16), false,
-            () =>
-            {
-                T.transform.parent = Scene.GetSceneOf(T.transform)?.transform;
-            }).GetOrAddRoutine<SimpleButton>().self.outsidePadding = new Rectangle(1);
-        
-        output = options;
-        return true;
-    }
-}
-
-public class RoutineProviderContextActions : IContextAction
-{
-    public bool ValidateAndGenerate(Context context, ContextWindow contextWindow, out ITransformProvider output)
-    {
-        switch (context.target)
-        {
-            case IRoutineProvider R:
-            {
-                SimpleButton button = SimpleButton.CreateTemplate(contextWindow.scene.transform, "Add Routine",
-                    new Vector2(16), false,
-                    () => { Debug.Log("Unimplemented", DebugLogLevel.Error); }
-                ).GetOrAddRoutine<SimpleButton>();
-                button.provider.GetOrAddRoutine<SimpleButton>().self.outsidePadding = new Rectangle(1);
-                ContextMenuProvider cmp = button.provider.AddRoutine<ContextMenuProvider>();
-                cmp.context = new Context(this, [context.target]);
-                cmp.activateOnHover = true;
-                output = (button.provider as ITransformProvider)!;
-                return true;
-            }
-            case RoutineProviderContextActions RPCA:
-            {
-                Thing options = new Thing(contextWindow.scene.transform, "Thing Options", typeof(Transform2D));
-                options.AddRoutine<ListLayout>().self.insidePadding = new Rectangle(0);
-                options.GetRoutine<ListLayout>()?.self.outsidePadding = new Rectangle(0);
-
-                switch (context.related)
-                {
-                    case [IRoutineProvider RP]:
-                    {
-                        foreach (Type T in Assembly.GetExecutingAssembly().GetTypes().Where(type => type.IsAssignableTo(typeof(Routine)) && type != typeof(Routine) ))
-                        {
-                            Thing thing = SimpleButton.CreateTemplate(options.transform, TypeExtensions.GetPrettyName(T),
-                                new Vector2(18));
-                            thing.GetRoutine<SimpleButton>()?.self.outsidePadding = new Rectangle(1);
-                            if (!T.IsGenericType) {
-                                thing.GetOrAddRoutine<SimpleButton>().onClick += () => { RP.AddRoutine(T); };
-                                continue;
-                            }
-
-                            ContextMenuProvider CMP2 = thing.AddRoutine<ContextMenuProvider>();
-                            CMP2.context = new Context(RPCA, [T, RP]);
-                        }
-                        break;
-                    }
-                    case [Type Ty, IRoutineProvider RP2]:
-                    {
-                        foreach (Type TT in TypeExtensions.GetPossibleGenericTypes(Ty))
-                        {
-                            Thing thingy = SimpleButton.CreateTemplate(options.transform, TypeExtensions.GetPrettyName(TT), new Vector2(18));
-                            thingy.GetRoutine<SimpleButton>()?.self.outsidePadding = new Rectangle(1);
-                            thingy.GetOrAddRoutine<SimpleButton>().onClick += () => { RP2.AddRoutine(TT); };
-                        }
-                        break;
-                    }
-                    default:
-                        output = null!;
-                        return false;
-                }
-                output = options;
-                return true;
-            }
-            default:
-                output = null!;
-                return false;
-        }
     }
 }
 
@@ -1902,7 +1411,6 @@ public class ContextMenuProvider : Routine
         if (contextMenu?.window?.destroyed??true) Close();
     }
 }
-
 
 public class MaskShape : RenderRoutine
 {
@@ -2041,26 +1549,19 @@ internal static class Program
         window.scene.transform = new Transform2D(window.scene);
         window.backgroundColor = Color.gray;
         Engine.MaxFPS = 999; // oh yeah BD)
-
+        
         
         
         Scene otherScene = new Scene();
-        otherScene.transform.parent = window.scene.transform;
+        // otherScene.transform.parent = window.scene.transform;
         otherScene.backgroundColor = Color.pink;
-        
-        
-        // Thing inspectWindow = new Thing();
-        // inspectWindow.transform.parent = (window.scene.transform);
-        // Rect inspectorRect = inspectWindow.GetOrAddRoutine<Rect>();
-        // inspectWindow.GetOrAddRoutine<MaskShape>().mask = new Mask(inspectorRect.Draw);
-        
         
         
         
         
         
         SceneHierarchyPortal hierarchyPortal = new SceneHierarchyPortal();
-        hierarchyPortal.transform.parent = window.scene.transform;
+        // hierarchyPortal.transform.parent = window.scene.transform;
         hierarchyPortal.backgroundColor = Color.orange;
         ListLayout sllay = hierarchyPortal.AddRoutine<ListLayout>();
         sllay.self.rect.Rescale(new Vector2(200, 400), true);
@@ -2073,26 +1574,55 @@ internal static class Program
         GameScenePortal gameScene = new GameScenePortal(new Scene("Game Scene"), otherScene.transform);
         gameScene.gameScene.backgroundColor = Color.red;
         
-        
         hierarchyPortal.targetTree = gameScene.gameScene.transform;
         hierarchyPortal.targetPortal = editorInspectorPortal;
         
-        window.scene.GetOrAddRoutine<BinaryTree>().aSide = hierarchyPortal.rect;
-        window.scene.GetOrAddRoutine<BinaryTree>().bSide = otherScene.rect;
-        window.scene.GetOrAddRoutine<BinaryTree>().ignoreMinSize = true;
-        window.scene.GetOrAddRoutine<BinaryTree>().percentage = 0.3f;
+        
+        
+        BinaryTree rootTree = new BinaryTree(window.scene.transform);
+        rootTree.ignoreMinSize = true;
+        rootTree.percentage = 0.3f;
+
+        (_, BinaryTree B ) = rootTree.Split(hierarchyPortal, null);
+
+        B.axis = -VectorAxis.Y;
+        B.Split(editorInspectorPortal, gameScene);
+        
         
 
-        editorInspectorPortal.transform.parent = otherScene.transform;
-        otherScene.GetOrAddRoutine<BinaryTree>().bSide = editorInspectorPortal.rect;
-        otherScene.GetOrAddRoutine<BinaryTree>().aSide = gameScene.GetOrAddRoutine<Rect>();
-        otherScene.GetOrAddRoutine<BinaryTree>().axis = 1;
-        otherScene.GetOrAddRoutine<BinaryTree>().ignoreMinSize = true;
+
+        // editorInspectorPortal.transform.parent = otherScene.transform;
+        // otherScene.GetOrAddRoutine<BinaryTree>().axis = 1;
+        // otherScene.GetOrAddRoutine<BinaryTree>().ignoreMinSize = true;
         
         
         Thing fpsCounter = new Thing(window.scene.transform);
         
+        Debug.stackSameLines = false;
+        LogChildren(window.scene.transform);
+        Debug.stackSameLines = true;
+        
         Engine.Run();
+        
+        Debug.stackSameLines = false;
+        LogChildren(window.scene.transform);
+        Debug.stackSameLines = true;
+
+    }
+
+    private static void LogChildren(Transform transform)
+    {
+        
+        string pre = "";
+        for (int i = 0; i < transform.depth; i++)
+        {
+            pre += "| ";
+        }
+        pre += "|-";
+        Debug.stackSameLines = false;
+        Debug.Log(pre, transform.attachedObject.name, "(", transform.attachedObject.GetType(), ")"); 
+        foreach(Transform child in transform.children)
+            LogChildren(child);
     }
 }
 

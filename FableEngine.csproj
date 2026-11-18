@@ -22,7 +22,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="FableEngine\Editor\" />
       <Folder Include="FableEngine\UI\" />
     </ItemGroup>
 

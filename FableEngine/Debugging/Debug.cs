@@ -108,7 +108,7 @@ public class Debug : INameable
                 break;
             }
 
-        if (sameLine)
+        if (sameLine && stackSameLines)
         {
             stackCount++;
             int lineheight = 1;
