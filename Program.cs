@@ -1090,8 +1090,8 @@ public class BinaryTree : Thing
             rescaler.cursorShape = value == 1 ? StandardCursor.VResize : StandardCursor.HResize;
         }
     } = VectorAxis.X;
-    public BinaryTree? aSide;
-    public BinaryTree? bSide;
+    public Ref<BinaryTree> aSide;
+    public Ref<BinaryTree> bSide;
     public bool ignoreMinSize = false;
     
     private UIArea rescaler;
@@ -1162,10 +1162,13 @@ public class BinaryTree : Thing
             if (PR != null)
                 self.rect = PR.rect;
         }
+
+        BinaryTree? A = aSide;
+        BinaryTree? B= bSide;
         
         foreach (Transform child in transform.children)
         {
-            if (child == aSide?.transform || child == bSide?.transform)
+            if (child == A?.transform || child == B?.transform)
                 continue;
             
             if (child.attachedObject is not IRoutineProvider RP)
@@ -1178,27 +1181,27 @@ public class BinaryTree : Thing
             R.rect = self.rect;
         }
 
-        if (aSide?.transform.children.Count == 0)
+        if (A?.transform.children.Count == 0)
         {
-            foreach (Transform child in aSide.transform.children)
+            foreach (Transform child in A.transform.children)
                 child.parent = transform;
-            aSide.Destroy();
-            aSide = null;
+            A.Destroy();
+            A = aSide.value;
         }
-        if (bSide?.transform.children.Count == 0)
+        if (B?.transform.children.Count == 0)
         {
-            foreach (Transform child in bSide.transform.children)
+            foreach (Transform child in B.transform.children)
                 child.parent = transform;
-            bSide.Destroy();
-            bSide = null;
+            B.Destroy();
+            B = bSide.value;
         }
         
-        if (aSide == null && bSide == null)
+        if (A == null && B == null)
             return;
         
-        if (aSide == null || bSide == null)
+        if (A == null || B == null)
         {
-            BinaryTree side = (aSide ?? bSide)!;
+            BinaryTree side = (A ?? B)!;
 
             while (side.transform.children.Count > 0)
                 side.transform.GetChild(0).parent = transform;
@@ -1207,33 +1210,36 @@ public class BinaryTree : Thing
             return;
         }
         
-        int index = transform.children.IndexOf(aSide.transform);
+        int index = transform.children.IndexOf(A.transform);
         if (index != 0)
             (transform.children[0], transform.children[index]) = (transform.children[index], transform.children[0]);
-        index = transform.children.IndexOf(bSide.transform);
+        index = transform.children.IndexOf(B.transform);
         if (index != 1)
             (transform.children[1], transform.children[index]) = (transform.children[index], transform.children[1]);
         
         IVector aSidePosition = origin;
         aSidePosition[axis] += (percentage / 2 - 0.5f) * self.rect.size[axis] - borderThickness/4;
-        aSide.transform.Position = aSidePosition;
+        A.transform.Position = aSidePosition;
         IVector aSideSize = self.rect.size;
         aSideSize[axis] *= percentage;
         aSideSize[axis] -= borderThickness/2;
-        aSide.self.rect.Rescale((Vector2)aSideSize, true);
+        A.self.rect.Rescale((Vector2)aSideSize, true);
         
         IVector bSidePosition = origin;
         bSidePosition[axis] += (percentage / 2) * self.rect.size[axis] + borderThickness/4;
-        bSide.transform.Position = bSidePosition;
+        B.transform.Position = bSidePosition;
         IVector bSideSize = self.rect.size;
         bSideSize[axis] *= 1 - percentage;
         bSideSize[axis] -= borderThickness/2;
-        bSide.self.rect.Rescale((Vector2)bSideSize, true);
+        B.self.rect.Rescale((Vector2)bSideSize, true);
         
     }
 
     public override bool Input(Input input)
     {
+        if (aSide.value == null || bSide.value == null)
+            return base.Input(input);
+        
         rescaler.UpdateState();
         if (axis == 1)
             rescaler.shape = new Rectangle( (self.origin + new Vector2(0, (percentage-0.5f)*self.height)), new Vector2(self.width, 10), true);
@@ -1250,13 +1256,13 @@ public class BinaryTree : Thing
             if (axis == 1)
                 percentage = Math.Clamp(
                     (relativeMouse.y - self.Bottom) / self.height,
-                    (aSide != null && !ignoreMinSize)?aSide.self.minSize.y/self.height:0,
-                    (bSide != null && !ignoreMinSize)? MathF.Max(1 - bSide.self.minSize.y / self.height, bSide.self.minSize.y/self.height):1);
+                    (!ignoreMinSize)?aSide.value.self.minSize.y/self.height:0,
+                    (!ignoreMinSize)? MathF.Max(1 - bSide.value.self.minSize.y / self.height, bSide.value.self.minSize.y/self.height):1);
             else
                 percentage = Math.Clamp(
                     (relativeMouse.x - self.Left) / self.width,
-                    (aSide != null && !ignoreMinSize)?aSide.self.minSize.x/self.width:0,
-                    (bSide != null && !ignoreMinSize)? MathF.Max(1 - bSide.self.minSize.x / self.width, bSide.self.minSize.x/self.width):1);
+                    (!ignoreMinSize)?aSide.value.self.minSize.x/self.width:0,
+                    (!ignoreMinSize)? MathF.Max(1 - bSide.value.self.minSize.x / self.width, bSide.value.self.minSize.x/self.width):1);
         }
 
         if (!input.GetMouseButton(0)) rescaling = false;
